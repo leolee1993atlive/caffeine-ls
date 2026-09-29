@@ -36,11 +36,11 @@ jobs:
             bin_name: caffeine-ls.exe
             builder: cargo-xwin
 
-          - os: ubuntu-latest
-            target: aarch64-pc-windows-msvc
-            vsce_target: win32-arm64
-            bin_name: caffeine-ls.exe
-            builder: cargo-xwin
+          # - os: ubuntu-latest
+          #   target: aarch64-pc-windows-msvc
+          #   vsce_target: win32-arm64
+          #   bin_name: caffeine-ls.exe
+          #   builder: cargo-xwin
 
           - os: macos-latest
             target: aarch64-apple-darwin
