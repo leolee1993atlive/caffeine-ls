@@ -137,15 +137,67 @@ pub struct LibraryIndex {
     pub names: Arc<NameIndex>,
     strings: Arc<Vec<String>>,
     /// The full tier-2 member records of every class, retained in memory.
-    /// Kept alongside (and preferred over) the persistent LMDB cache so that
-    /// member lookups — constructors, methods, static fields — work even when
-    /// the persistent cache is unavailable (no cache dir, read-only
-    /// filesystem): the records a freshly built index needs are the same ones
-    /// [`loader`](crate::loader) produced, so they are held here instead of
-    /// being dropped after a best-effort persist. Cache-loaded indexes keep
-    /// this empty and read tier-2 from the store.
+    ///
+    /// Only populated when the persistent LMDB cache is unavailable (no cache
+    /// dir, read-only filesystem) or its write failed: with an enabled store
+    /// the records live on disk and this stays empty, so a cold session holds
+    /// no more member stubs than a warm one. A rebuilt archive's records are
+    /// the ones [`loader`](crate::loader) produced, so they are held here
+    /// rather than dropped after a failed persist.
     records: Arc<Vec<DiskClassOrModuleRecord>>,
+    /// Tier-2 records decoded from the store, most-recently-used last. Bounded
+    /// so a scan over many classes cannot grow the session interner without
+    /// bound (the interner never frees).
+    records_cache: parking_lot::Mutex<RecordCache>,
     store: lmdb_store::StubStore,
+}
+
+/// Tier-2 records decoded from the store, most-recently-used last. Bounded so
+/// a scan of many classes cannot grow the session interner without bound.
+const RECORD_CACHE_CAP: usize = 1024;
+
+struct RecordCache {
+    map: FxHashMap<u32, Arc<ClassOrModuleRecord>>,
+    order: std::collections::VecDeque<u32>,
+}
+
+impl RecordCache {
+    fn new() -> Self {
+        Self {
+            map: FxHashMap::default(),
+            order: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Looks up a record and marks it most-recently-used.
+    fn get(&mut self, idx: u32) -> Option<Arc<ClassOrModuleRecord>> {
+        let record = self.map.get(&idx).cloned()?;
+        self.touch(idx);
+        Some(record)
+    }
+
+    /// Inserts a freshly decoded record, evicting the least-recently-used
+    /// entries while the cache exceeds its cap.
+    fn insert(&mut self, idx: u32, record: Arc<ClassOrModuleRecord>) {
+        if self.map.insert(idx, record).is_none() {
+            self.order.push_back(idx);
+        } else {
+            self.touch(idx);
+        }
+        while self.map.len() > RECORD_CACHE_CAP {
+            let Some(front) = self.order.pop_front() else {
+                break;
+            };
+            self.map.remove(&front);
+        }
+    }
+
+    fn touch(&mut self, idx: u32) {
+        if let Some(pos) = self.order.iter().position(|&k| k == idx) {
+            self.order.remove(pos);
+        }
+        self.order.push_back(idx);
+    }
 }
 
 impl LibraryIndex {
@@ -165,6 +217,7 @@ impl LibraryIndex {
             names,
             strings,
             records,
+            records_cache: parking_lot::Mutex::new(RecordCache::new()),
             store,
         }
     }
@@ -210,16 +263,32 @@ impl LibraryIndex {
         interner: &ThreadedRodeo,
         record_idx: u32,
     ) -> Option<Arc<ClassOrModuleRecord>> {
-        // Prefer the retained in-memory records (available even without the
-        // persistent cache); fall back to the LMDB store for cache-loaded
-        // indexes that kept their tier-2 only on disk.
-        let disk_record = self.records.get(record_idx as usize).cloned().or_else(|| {
-            self.store.with_record_bytes(self.id, record_idx, |bytes| {
-                from_bytes::<DiskClassOrModuleRecord>(bytes).ok()
-            })
+        // Prefer the retained disk records (available even without the
+        // persistent cache), then the bounded decode cache, then the LMDB
+        // store.
+        if let Some(disk_record) = self.records.get(record_idx as usize) {
+            let resolver = DiskResolver::new(&self.strings, interner);
+            return Some(Arc::new(resolver.class_or_module(disk_record)));
+        }
+        if let Some(record) = self.records_cache.lock().get(record_idx) {
+            return Some(record);
+        }
+        let disk_record = self.store.with_record_bytes(self.id, record_idx, |bytes| {
+            from_bytes::<DiskClassOrModuleRecord>(bytes).ok()
         })?;
         let resolver = DiskResolver::new(&self.strings, interner);
-        Some(Arc::new(resolver.class_or_module(&disk_record)))
+        let record = Arc::new(resolver.class_or_module(&disk_record));
+        self.records_cache
+            .lock()
+            .insert(record_idx, Arc::clone(&record));
+        Some(record)
+    }
+
+    /// The number of tier-2 records retained in memory. Test-only: production
+    /// code reads tier-2 through [`LibraryIndex::class_record`].
+    #[cfg(test)]
+    pub(crate) fn retained_records_len(&self) -> usize {
+        self.records.len()
     }
 }
 

@@ -350,11 +350,22 @@ pub fn load_or_build(
     let records = parse_archive(kind, archive, interner, cancel_check)?;
     let (names, meta, disk_records) = build(records, interner);
 
-    // Persist atomically; a failure here only costs warm starts (the
-    // session still runs on the freshly built in-memory index).
-    if let Err(err) = store.write_library(id, &meta, &disk_records) {
-        tracing::warn!(library = %id, "failed to persist stub cache entry: {err:#}");
-    }
+    // Persist atomically. When the store accepts the records, tier-2 is read
+    // back from disk on demand and the in-memory vector is dropped: a cold
+    // session then holds no more member stubs than a warm one. A disabled or
+    // failing store keeps the records resident, which is what the memory-only
+    // fallback needs (see [`LibraryIndex`]).
+    let retained_records = if store.is_enabled() {
+        match store.write_library(id, &meta, &disk_records) {
+            Ok(()) => Arc::new(Vec::new()),
+            Err(err) => {
+                tracing::warn!(library = %id, "failed to persist stub cache entry: {err:#}");
+                Arc::new(disk_records)
+            }
+        }
+    } else {
+        Arc::new(disk_records)
+    };
 
     Ok(LibraryIndex::new(
         id,
@@ -362,9 +373,7 @@ pub fn load_or_build(
         archive.to_owned(),
         Arc::new(names),
         Arc::new(meta.strings),
-        // Retain the full tier-2 records in memory so member lookups keep
-        // working even when persistence is unavailable (see [`LibraryIndex`]).
-        Arc::new(disk_records),
+        retained_records,
         store.clone(),
     ))
 }
@@ -590,6 +599,9 @@ mod tests {
             .lookup_fqn(interner.get_or_intern("com.example.Greeter"))
             .unwrap();
         assert!(!store.is_enabled());
+        // Without a persistent cache the freshly built records stay resident:
+        // there is no other copy to read tier-2 from.
+        assert_eq!(index.retained_records_len(), 1);
         // Even without the persistent cache, the freshly built index retains
         // its tier-2 member records in memory, so member lookups (constructors,
         // methods, fields) stay available.
@@ -598,6 +610,34 @@ mod tests {
             panic!("expected a class record");
         };
         assert_eq!(class.methods.len(), 2);
+    }
+
+    #[test]
+    fn persisted_store_keeps_member_stubs_off_the_heap() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let jar_path = Utf8PathBuf::from_path_buf(dir.path().join("test.jar")).unwrap();
+        build_jar(&jar_path);
+        let (_store_dir, store) = store_fixture();
+
+        let interner = ThreadedRodeo::default();
+        let id = LibraryId(0x5eed);
+
+        let index =
+            load_or_build(id, LibraryKind::Jar, &jar_path, &interner, &NOOP, &store).unwrap();
+        assert!(store.is_enabled());
+        // With a writable cache the built records are persisted and not
+        // mirrored in memory; tier-2 is read back from the store on demand.
+        assert_eq!(index.retained_records_len(), 0);
+
+        let (entry_idx, _) = index
+            .lookup_fqn(interner.get_or_intern("com.example.Greeter"))
+            .unwrap();
+        let record = index.class_record(&interner, entry_idx).unwrap();
+        let crate::stubs::ClassOrModuleStub::Class(class) = record.as_ref() else {
+            panic!("expected a class record");
+        };
+        assert_eq!(class.methods.len(), 2);
+        assert_eq!(class.fields.len(), 1);
     }
 
     #[test]
