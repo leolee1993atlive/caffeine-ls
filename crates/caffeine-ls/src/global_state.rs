@@ -7,7 +7,7 @@ use crate::{
 };
 use lsp_types::Uri;
 use project_model::WorkspaceGraph;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::time::Instant;
 use triomphe::Arc;
 
@@ -94,6 +94,16 @@ pub enum BackgroundTaskEvent {
         typ: lsp_types::MessageType,
         message: String,
     },
+    /// A chunk of the eager project symbol index finished; `live` are the
+    /// `(language, content_hash)` keys written by this chunk.
+    ProjectIndexChunk {
+        live: Vec<(u8, u64)>,
+        done: usize,
+        total: usize,
+    },
+    /// The index chunk was cancelled by a pending write (an edit arrived while
+    /// it ran); re-run it on a fresh snapshot.
+    ProjectIndexRetry,
 }
 
 pub struct ProgressEvent {
@@ -198,6 +208,25 @@ impl std::fmt::Display for ClientCancelled {
 
 impl std::error::Error for ClientCancelled {}
 
+/// The state of the eager project-symbol-index pass: the files still to write,
+/// accumulated so an edit that arrives mid-pass can extend the work.
+pub(crate) struct ProjectIndexJob {
+    /// The workspace root whose `.caffeine-ls` index this pass fills.
+    pub(crate) root: AbsPathBuf,
+    pub(crate) files: Vec<FileId>,
+    /// The index of the next file to write; a chunk covers
+    /// `files[next..next + INDEX_CHUNK_FILES]`.
+    pub(crate) next: usize,
+    /// Whether the pass prunes file records it did not re-write (only a full
+    /// pass does; an incremental refresh must not).
+    pub(crate) prune: bool,
+    /// The `$/progress` token of the pass's progress bar.
+    pub(crate) token: String,
+    /// The `(language, content_hash)` keys written so far, for the end-of-pass
+    /// prune.
+    pub(crate) live: FxHashSet<(u8, u64)>,
+}
+
 pub struct GlobalState {
     sender: Sender<lsp_server::Message>,
     req_queue: ReqQueue,
@@ -225,6 +254,18 @@ pub struct GlobalState {
     /// busy; it runs on the next idle iteration (see
     /// [`GlobalState::request_lru_eviction`]).
     pub(crate) pending_lru_eviction: bool,
+    /// The workspace root whose project symbol index the session owns, set on
+    /// every workspace load. `None` before the first load.
+    pub(crate) project_index_root: Option<AbsPathBuf>,
+    /// The eager project-symbol-index pass, `None` when none is running.
+    pub(crate) project_index: Option<ProjectIndexJob>,
+    /// Library warmup has started and the project-index pass that follows it
+    /// has not finished. A `shutdown` request that arrives in this window is
+    /// held so the process does not exit with a half-written index.
+    pub(crate) library_indexing: bool,
+    /// A `shutdown` request waiting for [`Self::library_indexing`] and any
+    /// running project-index pass to finish before it is answered.
+    pub(crate) deferred_shutdown: Option<lsp_server::RequestId>,
     /// Cancellation tokens of in-flight async requests, keyed by request id, so
     /// `$/cancelRequest` aborts the running worker instead of letting it finish
     /// a full pull.
@@ -298,6 +339,10 @@ impl GlobalState {
             vfs_config_version: 0,
             pending_requests: Vec::new(),
             pending_lru_eviction: false,
+            project_index_root: None,
+            project_index: None,
+            library_indexing: false,
+            deferred_shutdown: None,
             inflight_cancellations: FxHashMap::default(),
             scan_config_version: None,
             progress_tokens: FxHashMap::default(),

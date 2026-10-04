@@ -61,4 +61,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 triomphe = "0.1.15"
 unicode-general-category = "1.1.0"
 walkdir = "2.5.0"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 zip = "8.6.0"

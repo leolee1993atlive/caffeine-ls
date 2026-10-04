@@ -208,11 +208,31 @@ pub fn build_with_library_sources(
     sources: &[LibrarySourcesFixture],
     libraries: &[(LibraryId, LibraryInfo)],
 ) -> TestDatabase {
+    build_inner(roots, sources, libraries, None)
+}
+
+/// Like [`build`], but with a project-scoped cache root: the project symbol
+/// index is active and lives under `<workspace_root>/.caffeine-ls`.
+pub fn build_with_project_cache(
+    roots: &[Root],
+    libraries: &[(LibraryId, LibraryInfo)],
+    workspace_root: AbsPathBuf,
+) -> TestDatabase {
+    build_inner(roots, &[], libraries, Some(workspace_root))
+}
+
+fn build_inner(
+    roots: &[Root],
+    sources: &[LibrarySourcesFixture],
+    libraries: &[(LibraryId, LibraryInfo)],
+    workspace_root: Option<AbsPathBuf>,
+) -> TestDatabase {
     let mut db = TestDatabase::new();
     let mut change = FileChange::default();
     let mut all_roots = Vec::new();
     let mut data = ProjectGraphData {
         libraries: libraries.iter().cloned().collect(),
+        workspace_root,
         ..ProjectGraphData::default()
     };
     for (idx, root) in roots.iter().enumerate() {

@@ -12,11 +12,11 @@ use ide::{
 };
 use ide_db::base_db::{SourceRoot, SourceRootId};
 use lsp_server::{Connection, ErrorCode, Notification, Request};
-use lsp_types::*;
+use lsp_types::{Request as _, *};
 use project_model::{ClasspathEntry, SyncError, SyncPhase, SyncProgress};
 use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
-use vfs::{AbsPathBuf, VfsPath};
+use vfs::{AbsPathBuf, FileId, VfsPath};
 
 use crate::{
     GlobalState,
@@ -24,7 +24,7 @@ use crate::{
     decompiler,
     global_state::{
         BackgroundTaskEvent, OutgoingRequest, PendingRequest, ProgressEvent, ProgressState,
-        SourceRootKind,
+        ProjectIndexJob, SourceRootKind,
     },
     handlers::{
         self,
@@ -33,9 +33,16 @@ use crate::{
     library_sources,
     library_view::{self, LibraryView},
     line_index::LineEndings,
+    project_cache,
 };
 
 const OPEN_BUILD_TOOL_LOG_ACTION: &str = "Open Build Tool Log";
+
+/// Files written to the project symbol index per background chunk. The bound
+/// keeps a chunk short enough that its snapshot is not held for long (a write
+/// then cancels and waits for it) and small enough to fit the per-file memo
+/// bounds (which also cover the open documents).
+const INDEX_CHUNK_FILES: usize = 256;
 
 /// The largest classpath a decompiler is handed. CFR takes the whole list in
 /// one `--extraclasspath` argument, and a command line that long is past what a
@@ -116,6 +123,62 @@ fn detached_source_set() -> SourceSetId {
     }
 }
 
+/// Writes the project index record of one file, retiring the previous record
+/// for its path when the text changed. Returns `true` on success and `false`
+/// when the snapshot was cancelled by a pending write (the caller re-runs the
+/// chunk).
+fn index_one_file(
+    snapshot: &ide::Analysis,
+    store: &ide::ProjectIndexStore,
+    file: FileId,
+    live: &mut Vec<(u8, u64)>,
+) -> bool {
+    let path = match snapshot.file_abs_path(file) {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    // A file with no path (a virtual buffer) is not part of the on-disk
+    // project; nothing to record.
+    let Some(path) = path else {
+        tracing::debug!(file = file.index(), "project index: file has no path");
+        return true;
+    };
+    let record = match snapshot.compute_file_index(file) {
+        Ok(record) => record,
+        Err(_) => return false,
+    };
+    let Some(record) = record else {
+        // No indexable language, or the file vanished: retire whatever the
+        // path still names.
+        tracing::debug!(path = %path, "project index: no lowerable record for file");
+        if let Some(previous) = store.read_path(&path) {
+            let _ = store.delete_file(previous.language, previous.content_hash);
+        }
+        let _ = store.delete_path(&path);
+        return true;
+    };
+    // The path may have named a different text before this write; a record
+    // keyed by the old hash is now unreachable and is retired here rather than
+    // waiting for the next full pass's prune.
+    if let Some(previous) = store.read_path(&path)
+        && (previous.language, previous.content_hash) != (record.language, record.content_hash)
+    {
+        let _ = store.delete_file(previous.language, previous.content_hash);
+    }
+    if store
+        .read_file(record.language, record.content_hash)
+        .is_none()
+        && let Err(err) = store.write_file(record.language, record.content_hash, &record)
+    {
+        tracing::warn!(path = %path, "failed to write project index entry: {err:#}");
+    }
+    if let Err(err) = store.write_path(&path, record.language, record.content_hash) {
+        tracing::warn!(path = %path, "failed to write project index path entry: {err:#}");
+    }
+    live.push((record.language, record.content_hash));
+    true
+}
+
 /// Percentage ranges assigned to each sync phase. Together they always span
 /// 0..=99; the sync completes by reporting 100% explicitly once the workspace
 /// model is parsed (right before the `WorkDoneProgressEnd`).
@@ -151,7 +214,9 @@ impl GlobalState {
                     self.handle_vfs_task(task?);
                 }
                 recv(self.task_receiver) -> task => {
-                    self.handle_background_task(task?);
+                    // `receiver.is_empty()` tells a background pass whether an
+                    // eviction may run now or must wait for an idle iteration.
+                    self.handle_background_task(task?, receiver.is_empty());
                 }
             }
 
@@ -178,6 +243,18 @@ impl GlobalState {
 
     fn handle_request(&mut self, req: Request) {
         let request_received = Instant::now();
+        // Answered only once the project index (if a load is still writing
+        // it) has finished, so a headless run does not exit mid-pass.
+        if req.method == lsp_types::ShutdownRequest::METHOD.as_str() {
+            self.register_request(&req, request_received);
+            self.shutdown_requested = true;
+            if self.project_index.is_some() || self.library_indexing {
+                self.deferred_shutdown = Some(req.id);
+            } else {
+                self.respond_ok(req.id, ());
+            }
+            return;
+        }
         self.register_request(&req, request_received);
 
         let mut dispatcher = RequestDispatcher {
@@ -186,10 +263,6 @@ impl GlobalState {
         };
 
         dispatcher
-            .on::<ShutdownRequest>(|s, _| {
-                s.shutdown_requested = true;
-                Ok(())
-            })
             .on_async::<DocumentDiagnosticRequest>(handlers::on_diagnostic)
             .on_async::<WorkspaceDiagnosticRequest>(handlers::on_workspace_diagnostic)
             .on_async::<DocumentSymbolRequest>(handlers::on_document_symbol)
@@ -384,7 +457,7 @@ impl GlobalState {
         ))
     }
 
-    fn handle_background_task(&mut self, event: BackgroundTaskEvent) {
+    fn handle_background_task(&mut self, event: BackgroundTaskEvent, lsp_idle: bool) {
         match event {
             BackgroundTaskEvent::ProbeWorkspace { root } => {
                 // The probe only checks the existence of a handful of build files,
@@ -727,7 +800,39 @@ impl GlobalState {
 
             // The index stage is over, so a hint request now reads the caches
             // it just filled instead of building them itself.
-            BackgroundTaskEvent::LibrariesIndexed => self.refresh_inlay_hints(),
+            BackgroundTaskEvent::LibrariesIndexed => self.begin_project_index(),
+
+            BackgroundTaskEvent::ProjectIndexChunk { live, done, total } => {
+                let Some(job) = self.project_index.as_mut() else {
+                    return;
+                };
+                job.live.extend(live);
+                // The chunk succeeded: only now may the cursor advance. A
+                // cancelled chunk (see `ProjectIndexRetry`) must re-run.
+                job.next = done;
+                let prune = job.prune;
+                let files = job.files.len();
+                let token = job.token.clone();
+                if prune {
+                    let percentage = (done as f64 / total.max(1) as f64 * 100.0) as u32;
+                    self.report_progress(ProgressEvent {
+                        token,
+                        title: String::new(),
+                        message: Some(format!("Indexed {done}/{files} files")),
+                        percentage: Some(percentage),
+                        state: ProgressState::Report,
+                    });
+                    // A chunk boundary is the only safe point to evict: no
+                    // worker of this pass holds a snapshot then.
+                    self.request_lru_eviction(lsp_idle);
+                }
+                self.advance_project_index();
+            }
+            BackgroundTaskEvent::ProjectIndexRetry => {
+                // The chunk was cancelled by a write; `next` was not advanced,
+                // so this re-runs exactly that chunk on a fresh snapshot.
+                self.advance_project_index();
+            }
 
             BackgroundTaskEvent::VfsLoaded => {
                 tracing::info!("VFS file system synchronization completed.");
@@ -994,6 +1099,12 @@ impl GlobalState {
     ) {
         tracing::info!(?root, "Applying workspace source roots and loader config");
 
+        // The project-scoped cache directory. Created before the graph is
+        // applied so the directory the index store opens already carries its
+        // `CACHEDIR.TAG`/`.gitignore` markers.
+        project_cache::prepare(&root);
+        self.project_index_root = Some(root.clone());
+
         // Collect every build-system source root with its owning source set,
         // in a deterministic order. Each root becomes its own `SourceRoot` and
         // one `FileSet` (ra-style: the source root *is* the base directory a
@@ -1163,6 +1274,7 @@ impl GlobalState {
             .collect();
 
         let mut project_graph = self.build_project_graph(
+            &root,
             &graph,
             &source_sets,
             &sources,
@@ -1230,6 +1342,7 @@ impl GlobalState {
     /// ordered compile classpath.
     fn build_project_graph(
         &self,
+        root: &AbsPathBuf,
         graph: &project_model::WorkspaceGraph,
         source_set_ids: &[SourceSetId],
         sources: &FxHashMap<LibraryId, LibrarySources>,
@@ -1237,7 +1350,11 @@ impl GlobalState {
         decompiled: &FxHashMap<LibraryId, AbsPathBuf>,
         library_decompiled_roots: &FxHashMap<SourceRootId, LibraryId>,
     ) -> ProjectGraphData {
-        let mut data = ProjectGraphData::default();
+        let mut data = ProjectGraphData {
+            // Selects the project symbol index's directory (`<root>/.caffeine-ls`).
+            workspace_root: Some(root.clone()),
+            ..ProjectGraphData::default()
+        };
 
         // SDK → the concrete jimage/rt.jar library id.
         let mut sdk_library: FxHashMap<project_model::SdkId, project_model::LibraryId> =
@@ -1364,9 +1481,10 @@ impl GlobalState {
     /// source scans wait for every (expensive) stub build.
     fn warmup_libraries(&mut self, root: &AbsPathBuf) {
         let ids: Vec<LibraryId> = self.analysis_host.registered_libraries();
+        // Held until the project-index pass that follows warmup finishes, so
+        // `shutdown` waits instead of exiting over a half-written index.
+        self.library_indexing = true;
         if ids.is_empty() {
-            // Nothing to index: the stage is over, and the client can be told
-            // its hints are worth re-requesting right away.
             self.task_sender
                 .send(BackgroundTaskEvent::LibrariesIndexed)
                 .ok();
@@ -1431,6 +1549,205 @@ impl GlobalState {
                 }
             });
         }
+    }
+
+    /// The project symbol index of the active workspace, if the session has one.
+    fn project_index_store(&self) -> Option<Arc<ide::ProjectIndexStore>> {
+        self.analysis_host.project_index_store()
+    }
+
+    /// The library-warmup stage is over but the client's inlay hints must not
+    /// be refreshed until the project symbol index is written too (the hints
+    /// resolve through it), so the eager pass runs first and completes the
+    /// stage itself. Without a project cache the stage completes now, exactly
+    /// as before this pass existed.
+    fn begin_project_index(&mut self) {
+        let files = self.analysis_host.source_files();
+        self.start_project_index(files, true);
+    }
+
+    /// Starts — or extends — the project symbol index pass over `files`.
+    ///
+    /// `prune` marks the once-per-load full pass that sweeps records it did
+    /// not re-write and reports progress; an incremental refresh (an edit)
+    /// passes `false` and must neither prune nor extend the stage.
+    fn start_project_index(&mut self, files: Vec<FileId>, prune: bool) {
+        if let Some(job) = self.project_index.as_mut() {
+            // The vfs delivers files before library warmup ends, so an
+            // incremental refresh is often already running when the full pass
+            // starts. Upgrade it: a second writer would race, and dropping
+            // `prune` would skip the end-of-pass sweep and the inlay refresh.
+            if prune {
+                job.prune = true;
+            }
+            for file in files {
+                if !job.files.contains(&file) {
+                    job.files.push(file);
+                }
+            }
+            return;
+        }
+        let root = match self.project_index_root.clone() {
+            Some(root) => root,
+            None => {
+                if prune {
+                    self.complete_library_stage();
+                }
+                return;
+            }
+        };
+        let Some(store) = self.project_index_store() else {
+            if prune {
+                self.complete_library_stage();
+            }
+            return;
+        };
+
+        let total = files.len();
+        if total == 0 {
+            if prune {
+                let _ = store.prune(&FxHashSet::default());
+                self.complete_library_stage();
+            }
+            return;
+        }
+        let token = format!("index-{}", root.as_str());
+        if prune {
+            self.report_progress(ProgressEvent {
+                token: token.clone(),
+                title: "Indexing project symbols".to_string(),
+                message: Some(format!("Indexed 0/{total} files")),
+                percentage: Some(0),
+                state: ProgressState::Begin,
+            });
+        }
+        self.project_index = Some(ProjectIndexJob {
+            root,
+            files,
+            next: 0,
+            prune,
+            token,
+            live: FxHashSet::default(),
+        });
+        self.advance_project_index();
+    }
+
+    /// The next chunk of the running pass, or `None` when no pass is running.
+    fn project_index_chunk(&self) -> Option<(Vec<FileId>, usize, usize)> {
+        let job = self.project_index.as_ref()?;
+        let total = job.files.len();
+        if job.next >= total {
+            return Some((Vec::new(), job.next, total));
+        }
+        let end = (job.next + INDEX_CHUNK_FILES).min(total);
+        Some((job.files[job.next..end].to_vec(), end, total))
+    }
+
+    /// Runs the next chunk of the project index pass on the worker pool, or
+    /// finishes it when every file has been written.
+    fn advance_project_index(&mut self) {
+        let Some((chunk, done, total)) = self.project_index_chunk() else {
+            return;
+        };
+        if chunk.is_empty() {
+            self.finish_project_index();
+            return;
+        }
+        let Some(store) = self.project_index_store() else {
+            // The store disappeared mid-pass (a reload dropped it): stop
+            // cleanly rather than retry forever.
+            self.finish_project_index();
+            return;
+        };
+        let snapshot = self.analysis_host.snapshot();
+        let sender = self.task_sender.clone();
+        self.thread_pool.execute(move || {
+            let mut live = Vec::with_capacity(chunk.len());
+            for file in chunk {
+                if !index_one_file(&snapshot, &store, file, &mut live) {
+                    // A write landed while this chunk ran: the snapshot is
+                    // cancelled. Re-run the chunk on a fresh snapshot.
+                    let _ = sender.send(BackgroundTaskEvent::ProjectIndexRetry);
+                    return;
+                }
+            }
+            let _ = sender.send(BackgroundTaskEvent::ProjectIndexChunk { live, done, total });
+        });
+    }
+
+    /// Completes the running project index pass: prunes stale records (full
+    /// pass only), ends its progress bar, and keeps the open documents hot
+    /// across the pass's evictions.
+    fn finish_project_index(&mut self) {
+        let Some(job) = self.project_index.take() else {
+            return;
+        };
+        tracing::debug!(
+            root = %job.root.as_str(),
+            files = job.files.len(),
+            written = job.live.len(),
+            "project symbol index pass complete"
+        );
+        if job.prune {
+            if let Some(store) = self.project_index_store() {
+                match store.prune(&job.live) {
+                    Ok(pruned) if pruned > 0 => {
+                        tracing::debug!(pruned, "pruned stale project index entries");
+                    }
+                    Ok(_) => {}
+                    Err(err) => tracing::warn!("failed to prune project index: {err:#}"),
+                }
+            }
+            self.report_progress(ProgressEvent {
+                token: job.token,
+                title: String::new(),
+                message: Some("Indexing complete".to_string()),
+                percentage: Some(100),
+                state: ProgressState::End,
+            });
+        }
+        self.rewarm_open_documents();
+        if job.prune {
+            // Only the once-per-load pass completes the library stage: hints
+            // resolve against the libraries and the project index now.
+            self.complete_library_stage();
+        } else {
+            self.maybe_finish_shutdown();
+        }
+    }
+
+    /// Ends the library-warmup stage: a hint request now reads the caches the
+    /// stage filled instead of building them itself.
+    fn complete_library_stage(&mut self) {
+        self.library_indexing = false;
+        self.refresh_inlay_hints();
+        self.maybe_finish_shutdown();
+    }
+
+    /// Answers a `shutdown` that was held for the project index, once nothing
+    /// is left that the process must finish writing.
+    fn maybe_finish_shutdown(&mut self) {
+        if self.deferred_shutdown.is_some()
+            && self.project_index.is_none()
+            && !self.library_indexing
+        {
+            let id = self.deferred_shutdown.take().unwrap();
+            self.respond_ok(id, ());
+        }
+    }
+
+    /// Whether `file` belongs to a build-system source root (as opposed to a
+    /// library's materialized sources, its decompiled output, or the
+    /// pre-workspace fallback root). Only these files are the project's own.
+    fn is_workspace_file(&self, file: FileId) -> bool {
+        let db = self.analysis_host.raw_database();
+        let Some(root) = ide_db::base_db::SourceDatabase::source_root_for_file(db, file) else {
+            return false;
+        };
+        matches!(
+            self.source_root_kinds.get(root.0 as usize),
+            Some(SourceRootKind::SourceSet)
+        )
     }
 
     /// Rebuilds the database source roots by partitioning the current vfs with
@@ -1610,6 +1927,7 @@ impl GlobalState {
         // every `set`, each of which is a new revision that invalidates every
         // root-keyed memo (`source_root_symbols_query`, ...) workspace-wide.
         let mut roots_changed = false;
+        let mut changed_files: Vec<FileId> = Vec::new();
         {
             let mut vfs = self.vfs.write();
             let (vfs, line_endings_map) = &mut *vfs;
@@ -1620,6 +1938,7 @@ impl GlobalState {
                     vfs::Change::Create(..) | vfs::Change::Delete => roots_changed = true,
                     vfs::Change::Modify(..) => {}
                 }
+                changed_files.push(file_id);
                 let new_text = match changed_file.change {
                     vfs::Change::Create(items, _) | vfs::Change::Modify(items, _) => {
                         String::from_utf8(items).ok().map(|text| {
@@ -1645,6 +1964,18 @@ impl GlobalState {
         }
 
         self.analysis_host.apply_change(change);
+
+        // Refresh the project symbol index for the files whose text changed.
+        // A library's materialized or decompiled file is not the project's own
+        // and is skipped (it is not in `source_files`, so a full pass would not
+        // write it either).
+        let changed: Vec<FileId> = changed_files
+            .into_iter()
+            .filter(|&file| self.is_workspace_file(file))
+            .collect();
+        if !changed.is_empty() {
+            self.start_project_index(changed, false);
+        }
     }
 }
 

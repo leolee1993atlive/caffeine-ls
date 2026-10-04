@@ -22,6 +22,12 @@ pub struct Change {
 }
 
 impl Change {
+    /// Whether applying this change writes nothing. See
+    /// [`FileChange::is_empty`].
+    pub fn is_empty(&self) -> bool {
+        self.project_graph.is_none() && self.source_change.is_empty()
+    }
+
     /// Replaces the database source roots: index `i` of `roots` becomes
     /// `SourceRootId(i)`, the mapping the project graph carries.
     pub fn set_roots(&mut self, roots: Vec<SourceRoot>) {

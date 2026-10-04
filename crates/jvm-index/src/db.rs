@@ -10,7 +10,7 @@
 //! resolve queries ([`fqn_resolve`]) search exactly those libraries, in
 //! classpath order.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use triomphe::Arc;
 
@@ -34,6 +34,7 @@ use crate::{
     project::{
         Classpath, ClasspathEntry, LibraryInfo, LibrarySources, ProjectGraphData, SourceSetId,
     },
+    project_index::{self, ProjectIndexStore},
     stubs::{ClassOrModuleRecord, ClassOrModuleStub, Symbol, TypeParameter, TypeRef},
     symbol_index::{SourceSymbol, SourceSymbolIndex, SourceSymbolKind, SourceSymbolRef},
 };
@@ -158,6 +159,10 @@ pub struct HirState {
     /// distinct id maps to one [`crate::stubs::Symbol`]-free [`Ty`] in `hir-ty`,
     /// unique for the session so no two inference variables ever collide.
     pub next_infer_var: std::sync::Mutex<u64>,
+    /// The project-scoped symbol index (`<root>/.caffeine-ls/index/vN`) of the
+    /// active workspace, `None` before a load or when no workspace root was
+    /// given (tests). Replaced per load; see [`set_project_graph`].
+    pub project_store: Mutex<Option<Arc<ProjectIndexStore>>>,
 }
 
 /// The JVM substrate database: the classpath, bytecode and resolved class
@@ -203,6 +208,13 @@ pub fn file_body_tree(db: &dyn HirDatabase, file_id: FileId) -> Arc<hir_expand::
 pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
     let state = db.hir_state();
 
+    // Point the project symbol index at `<root>/.caffeine-ls/index/vN`. The
+    // root is part of the graph because the directory is project-scoped; a
+    // reload of the same root reuses the open store (reopening the same LMDB
+    // environment twice in one process would conflict with a clone a worker
+    // still holds).
+    set_project_store(state, data.workspace_root.as_deref());
+
     // Prune libraries that are no longer reachable, then register the new set.
     let live: rustc_hash::FxHashSet<LibraryId> = data.libraries.keys().copied().collect();
     state.libraries.retain(|id, _| live.contains(id));
@@ -229,6 +241,7 @@ pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
     }
 
     let ProjectGraphData {
+        workspace_root: _,
         libraries,
         source_sets,
         source_root_to_source_set,
@@ -279,6 +292,37 @@ pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
             );
         }
     }
+}
+
+/// Points the session's project symbol index at the store for `root`,
+/// reusing the open store when the directory is unchanged (reopening the same
+/// LMDB environment twice in one process conflicts with a clone a worker may
+/// still hold).
+fn set_project_store(state: &HirState, root: Option<&AbsPath>) {
+    let mut slot = state.project_store.lock();
+    let Some(root) = root else {
+        *slot = None;
+        return;
+    };
+    let dir = PathBuf::from(
+        root.join(".caffeine-ls/index")
+            .join(format!("v{}", project_index::PROJECT_INDEX_FORMAT_VERSION))
+            .as_str(),
+    );
+    if slot
+        .as_ref()
+        .is_some_and(|store| store.dir().as_deref() == Some(dir.as_path()))
+    {
+        return;
+    }
+    let store = Arc::new(ProjectIndexStore::default());
+    store.open_at(dir);
+    *slot = Some(store);
+}
+
+/// The project symbol index of the active workspace, if a session has one.
+pub fn project_index_store(db: &dyn HirDatabase) -> Option<Arc<ProjectIndexStore>> {
+    db.hir_state().project_store.lock().clone()
 }
 
 /// The current project graph, if the workspace has been loaded.
@@ -771,16 +815,86 @@ fn debug_path(db: &dyn HirDatabase, file: FileId) -> String {
 #[salsa::tracked(returns(ref))]
 fn file_symbols_query(db: &dyn HirDatabase, file: FileText) -> Arc<[SourceSymbol]> {
     let file_id = *file.file_id(db);
-    let symbols = crate::lang::for_file(db, file_id)
-        .map_or_else(Vec::new, |index| index.file_symbols(db, file_id));
-    tracing::debug!(
-        file_id = ?file_id,
-        path = %debug_path(db, file_id),
-        language = ?file_item_tree(db, file_id).language(),
-        symbol_count = symbols.len(),
-        "hir: indexed file declarations",
-    );
-    Arc::from(symbols)
+    let language = file_language_kind(db, file_id).unwrap_or(LanguageKind::Unknown);
+    // A recorded index entry for this exact text answers without lowering the
+    // file (and without building its item tree): the whole point of the
+    // project index. Only the fallback lowers.
+    let symbols: Arc<[SourceSymbol]> = match stored_file_index(db, file) {
+        Some(blob) => {
+            let symbols: Vec<SourceSymbol> = blob.symbols().collect();
+            tracing::debug!(
+                file_id = ?file_id,
+                path = %debug_path(db, file_id),
+                language = ?language,
+                symbol_count = symbols.len(),
+                "hir: file declarations from project index",
+            );
+            Arc::from(symbols)
+        }
+        None => {
+            let symbols = crate::lang::for_file(db, file_id)
+                .map_or_else(Vec::new, |index| index.file_symbols(db, file_id));
+            tracing::debug!(
+                file_id = ?file_id,
+                path = %debug_path(db, file_id),
+                language = ?language,
+                symbol_count = symbols.len(),
+                "hir: indexed file declarations",
+            );
+            Arc::from(symbols)
+        }
+    };
+    symbols
+}
+
+/// The persisted project-index record of `file`'s current text, `None` when
+/// the store is unavailable or has no entry for the text. Read in a
+/// short-lived transaction (see [`ProjectIndexStore`]).
+fn stored_file_index(db: &dyn HirDatabase, file: FileText) -> Option<project_index::FileIndexBlob> {
+    let file_id = *file.file_id(db);
+    let language = project_index::language_code(file_language_kind(db, file_id)?)?;
+    let hash = project_index::content_hash(file.text(db));
+    project_index_store(db)?.read_file(language, hash)
+}
+
+/// The persistable record of `file`: its package, its synthesized facade class
+/// and the declarations lowered from its current text. `None` for a file with
+/// no indexable language. This is what the eager project-index pass writes.
+pub fn compute_file_index(
+    db: &dyn HirDatabase,
+    file: FileId,
+) -> Option<project_index::FileIndexBlob> {
+    let language = file_language_kind(db, file)?;
+    let code = project_index::language_code(language)?;
+    let index = crate::lang::for_file(db, file)?;
+    let text = db.file_text(file);
+    Some(project_index::FileIndexBlob {
+        format_version: project_index::PROJECT_INDEX_FORMAT_VERSION,
+        content_hash: project_index::content_hash(text.text(db)),
+        language: code,
+        package: index
+            .file_package(db, file)
+            .map(|package| package.as_str().to_owned())
+            .unwrap_or_default(),
+        facade: index
+            .file_facade_class(db, file)
+            .map(|facade| facade.as_str().to_owned()),
+        symbols: index
+            .file_symbols(db, file)
+            .iter()
+            .map(project_index::PersistedSymbol::from_symbol)
+            .collect(),
+    })
+}
+
+/// The absolute path of `file`, the `KIND_PATH` key of the project index.
+/// `None` when the file has no source root or its path is virtual (unsaved
+/// buffers): those files are not part of the on-disk project.
+pub fn file_abs_path(db: &dyn HirDatabase, file: FileId) -> Option<String> {
+    let root = db.source_root_for_file(file)?;
+    let root = db.source_root(root);
+    let path = root.source_root(db).path_for_file(&file)?;
+    path.as_path().map(|path| path.to_string())
 }
 
 pub(crate) fn join_name(prefix: &Name, suffix: &str) -> Name {
@@ -950,10 +1064,22 @@ fn source_set_symbol_index_query(
 /// memoized.
 #[salsa::tracked(returns(clone))]
 fn file_package_query(db: &dyn HirDatabase, file: FileText) -> Name {
+    // The persisted entry stores the unnamed package as `""`, matching the
+    // lowered answer.
+    if let Some(blob) = stored_file_index(db, file) {
+        return Name::new(&blob.package);
+    }
     let file_id = *file.file_id(db);
     crate::lang::for_file(db, file_id)
         .and_then(|index| index.file_package(db, file_id))
         .unwrap_or_else(|| Name::new(""))
+}
+
+/// The declared package of `file_id`, the empty name for the unnamed package
+/// ([JLS §7.4.2](https://docs.oracle.com/javase/specs/jls/se26/html/jls-7.html#jls-7.4.2)).
+/// See [`file_package_query`].
+pub fn file_package(db: &dyn HirDatabase, file: FileId) -> Name {
+    file_package_query(db, db.file_text(file))
 }
 
 /// The files of `root` grouped by declared package
@@ -1110,7 +1236,19 @@ pub fn file_path_segments(db: &dyn HirDatabase, file: FileId) -> Option<Arc<Vec<
 /// the type layer reads the same answer here rather than deriving a second one
 /// of its own.
 pub fn file_facade_class(db: &dyn HirDatabase, file: FileId) -> Option<Name> {
-    crate::lang::for_file(db, file)?.file_facade_class(db, file)
+    file_facade_class_query(db, db.file_text(file))
+}
+
+/// Memoized per [`FileText`] form of [`file_facade_class`], so the persisted
+/// project-index entry can answer without consulting the language's lowered
+/// item tree.
+#[salsa::tracked(returns(clone))]
+fn file_facade_class_query(db: &dyn HirDatabase, file: FileText) -> Option<Name> {
+    if let Some(blob) = stored_file_index(db, file) {
+        return blob.facade.as_deref().map(Name::new);
+    }
+    let file_id = *file.file_id(db);
+    crate::lang::for_file(db, file_id)?.file_facade_class(db, file_id)
 }
 
 /// The file whose synthesized JVM facade class is `fqn`, if any — the class a

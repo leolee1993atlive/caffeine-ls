@@ -11,8 +11,9 @@ pub use ide_db::{
 };
 pub use ide_diagnostics::Diagnostic;
 pub use jvm_index::{
-    Classpath, ClasspathEntry, LibraryInfo, LibraryKind, LibrarySources, ProjectGraphData,
-    SourceSetId, SourceSymbolKind,
+    Classpath, ClasspathEntry, FileIndexBlob, LibraryInfo, LibraryKind, LibrarySources,
+    PROJECT_INDEX_FORMAT_VERSION, PathEntryBlob, ProjectGraphData, ProjectIndexStore, SourceSetId,
+    SourceSymbolKind,
 };
 pub use project_model::LibraryId;
 use rustc_hash::FxHashSet;
@@ -62,6 +63,14 @@ impl AnalysisHost {
 
     /// Applies the change to the database. Outstanding snapshots are canceled.
     pub fn apply_change(&mut self, change: Change) {
+        // An empty change writes nothing, so there is no settle point to
+        // exploit and nothing to invalidate. Skipping it matters because the
+        // server's main loop applies one after *every* event: evicting an
+        // empty change would cancel the snapshot of whichever request or
+        // background chunk is running at that moment.
+        if change.is_empty() {
+            return;
+        }
         change.apply(&mut self.db);
         // A settle point: drop the LRU-bound per-file memos (parse/item/body/
         // type/report) so retention does not track every file ever analyzed.
@@ -95,6 +104,19 @@ impl AnalysisHost {
     /// only to hand out to [`Self::library_warmup`].
     pub fn registered_libraries(&self) -> Vec<LibraryId> {
         jvm_index::registered_libraries(&self.db)
+    }
+
+    /// Every workspace source file (excluding the pre-workspace fallback root
+    /// and the read-only library roots), the file set the project symbol index
+    /// and the workspace diagnostic pull iterate.
+    pub fn source_files(&self) -> Vec<FileId> {
+        self.db.source_files()
+    }
+
+    /// The project-scoped symbol index of the active workspace, if the session
+    /// has one. Cloneable handle for background passes that write it.
+    pub fn project_index_store(&self) -> Option<Arc<jvm_index::ProjectIndexStore>> {
+        jvm_index::project_index_store(&self.db)
     }
 
     /// A cloneable handle to the session's library-index state, for background
@@ -257,6 +279,23 @@ impl Analysis {
     /// [`workspace::workspace_reports`]). The `workspace/diagnostic` pull.
     pub fn workspace_reports(&self) -> Cancellable<Vec<WorkspaceReport>> {
         self.with_db(workspace::workspace_reports)
+    }
+
+    /// The persistable project-index record of `file` (its package, facade and
+    /// declarations), or `None` for a file with no indexable language.
+    /// Cancellable like every analysis read: an edit applied while this runs
+    /// unwinds instead of observing a torn revision.
+    pub fn compute_file_index(
+        &self,
+        file_id: FileId,
+    ) -> Cancellable<Option<jvm_index::FileIndexBlob>> {
+        self.with_db(|db| jvm_index::compute_file_index(db, file_id))
+    }
+
+    /// The absolute path of `file`, the project index's path key. `None` for a
+    /// file with no source root or a virtual (unsaved) path.
+    pub fn file_abs_path(&self, file_id: FileId) -> Cancellable<Option<String>> {
+        self.with_db(|db| jvm_index::file_abs_path(db, file_id))
     }
 
     /// The declared symbols of a file, in declaration order.

@@ -31,6 +31,14 @@ impl fmt::Debug for FileChange {
 }
 
 impl FileChange {
+    /// Whether applying this change writes nothing: no new root set and no
+    /// file text. `apply` is then a no-op, so a caller that treats every apply
+    /// as a settle point (evicting the LRU memos, canceling snapshots) can skip
+    /// it instead of disturbing in-flight work every main-loop iteration.
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_none() && self.files_changed.is_empty()
+    }
+
     pub fn set_roots(&mut self, roots: Vec<SourceRoot>) {
         self.roots = Some(roots);
     }

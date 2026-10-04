@@ -87,6 +87,11 @@ pub struct LibrarySources {
 /// workspace. See [`crate::db::ProjectGraph`] for the salsa input.
 #[derive(Debug, Clone, Default)]
 pub struct ProjectGraphData {
+    /// The workspace root the project-scoped cache (`<root>/.caffeine-ls`)
+    /// lives under, `None` when the caller does not use one (tests, and any
+    /// platform without a project cache). It selects the directory of the
+    /// project symbol index.
+    pub workspace_root: Option<AbsPathBuf>,
     pub libraries: FxHashMap<LibraryId, LibraryInfo>,
     pub source_sets: FxHashMap<SourceSetId, Arc<Classpath>>,
     pub source_root_to_source_set: FxHashMap<base_db::SourceRootId, SourceSetId>,

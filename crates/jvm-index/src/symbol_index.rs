@@ -84,6 +84,52 @@ pub enum SourceSymbolKind {
 }
 
 impl SourceSymbolKind {
+    /// The stable byte code of the kind, for the persisted project index.
+    /// Append-only: reassigning a code reinterprets records already on disk,
+    /// which is why the store also carries a format version.
+    pub fn as_u8(self) -> u8 {
+        match self {
+            SourceSymbolKind::Class => 0,
+            SourceSymbolKind::Interface => 1,
+            SourceSymbolKind::Enum => 2,
+            SourceSymbolKind::Record => 3,
+            SourceSymbolKind::Annotation => 4,
+            SourceSymbolKind::Module => 5,
+            SourceSymbolKind::Method => 6,
+            SourceSymbolKind::Field => 7,
+            SourceSymbolKind::EnumConstant => 8,
+            SourceSymbolKind::Package => 9,
+            SourceSymbolKind::Object => 10,
+            SourceSymbolKind::Function => 11,
+            SourceSymbolKind::Property => 12,
+            SourceSymbolKind::Constructor => 13,
+            SourceSymbolKind::TypeAlias => 14,
+        }
+    }
+
+    /// The kind of a persisted byte code, `None` for an unknown code (a
+    /// record written by a newer format the version check did not reject).
+    pub fn from_u8(value: u8) -> Option<Self> {
+        Some(match value {
+            0 => SourceSymbolKind::Class,
+            1 => SourceSymbolKind::Interface,
+            2 => SourceSymbolKind::Enum,
+            3 => SourceSymbolKind::Record,
+            4 => SourceSymbolKind::Annotation,
+            5 => SourceSymbolKind::Module,
+            6 => SourceSymbolKind::Method,
+            7 => SourceSymbolKind::Field,
+            8 => SourceSymbolKind::EnumConstant,
+            9 => SourceSymbolKind::Package,
+            10 => SourceSymbolKind::Object,
+            11 => SourceSymbolKind::Function,
+            12 => SourceSymbolKind::Property,
+            13 => SourceSymbolKind::Constructor,
+            14 => SourceSymbolKind::TypeAlias,
+            _ => return None,
+        })
+    }
+
     /// The display label of the kind.
     pub fn label(&self) -> &'static str {
         match self {

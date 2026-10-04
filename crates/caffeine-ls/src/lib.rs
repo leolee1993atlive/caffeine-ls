@@ -14,6 +14,7 @@ pub(crate) mod diagnostics;
 mod global_state;
 mod lsp;
 mod main_loop;
+pub(crate) mod project_cache;
 
 pub use global_state::GlobalState;
 pub use lsp::capabilities::server_capabilities;

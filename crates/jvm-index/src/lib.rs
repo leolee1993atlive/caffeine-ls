@@ -13,6 +13,7 @@ pub mod lmdb_store;
 pub mod loader;
 pub mod modules;
 pub mod project;
+pub mod project_index;
 pub mod stubs;
 pub mod symbol_index;
 
@@ -23,10 +24,11 @@ pub use db::{
     ClassGenericInfo, DocIndex, HirDatabase, HirState, JavaDatabase, JvmDatabase, KotlinDatabase,
     LibraryId, LibraryKind, ProjectGraph, ResolutionScope, Resolved, ResolvedClass, SourceClass,
     class_generic_info, class_record, classes_in_package, classpath, classpath_libraries,
-    enable_persistent_stub_cache, file_body_tree, file_docs, file_facade_class, file_facade_source,
-    file_item_tree, file_name, file_package_dir, file_path_segments, file_symbols, fqn_resolve,
-    item_doc, jdk_builtin_libraries, language_level_for_file, library_name_index, module_name,
-    module_record, package_exists, project_graph, prune_stub_cache, registered_libraries,
+    compute_file_index, enable_persistent_stub_cache, file_abs_path, file_body_tree, file_docs,
+    file_facade_class, file_facade_source, file_item_tree, file_name, file_package,
+    file_package_dir, file_path_segments, file_symbols, fqn_resolve, item_doc,
+    jdk_builtin_libraries, language_level_for_file, library_name_index, module_name, module_record,
+    package_exists, project_graph, project_index_store, prune_stub_cache, registered_libraries,
     release_for_file, release_for_source_set, resolve_in_libraries, set_project_graph,
     source_class_fqn, source_set_for_file, source_set_fqn_symbols, source_set_package_files,
     source_set_symbols, super_types, warmup_library,
@@ -45,6 +47,10 @@ pub use modules::{
 };
 pub use project::{
     Classpath, ClasspathEntry, LibraryInfo, LibrarySources, ProjectGraphData, SourceSetId,
+};
+pub use project_index::{
+    FileIndexBlob, PROJECT_INDEX_FORMAT_VERSION, PathEntryBlob, PersistedSymbol, ProjectIndexStore,
+    content_hash, language_code,
 };
 pub use project_model::{JavaLanguageLevel, ProjectId, SourceSetKind};
 pub use stubs::{

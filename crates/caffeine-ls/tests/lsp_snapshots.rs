@@ -686,6 +686,50 @@ fn test_syntax_diagnostics_before_workspace_load() {
     insta::assert_json_snapshot!("syntax_diagnostics_before_workspace_load", diagnostics);
 }
 
+/// The eager project-symbol-index pass runs once the workspace is loaded,
+/// writes `<root>/.caffeine-ls/index/v1` with its marker files, and
+/// `workspace/symbol` still answers the project's declarations — the index is
+/// a cache, not a second source of truth.
+#[test]
+fn test_project_symbol_index_is_written() {
+    let lsp = create_lsp();
+    lsp.write_file(
+        "/src/com/example/Foo.java",
+        "package com.example;\n\npublic class Foo {\n    public int x;\n}\n",
+    );
+    let response = request_until(&lsp, "workspace/symbol", json!({ "query": "Foo" }), |r| {
+        r.as_array()
+            .is_some_and(|symbols| symbols.iter().any(|symbol| symbol["name"] == "Foo"))
+    });
+
+    // The pass runs after library warmup; wait for its store on disk.
+    let dot = lsp.workspace_root.path().join(".caffeine-ls");
+    let index = dot.join("index").join("v1");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !index.join("data.mdb").exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "project symbol index was never written"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    // The markers that keep the hidden cache out of version control and out of
+    // backup tools.
+    assert!(dot.join(".gitignore").exists());
+    assert!(dot.join("CACHEDIR.TAG").exists());
+
+    assert_eq!(
+        response
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|symbol| symbol["name"] == "Foo")
+            .count(),
+        1
+    );
+}
+
 #[test]
 fn test_document_symbols() {
     let lsp = create_lsp();
