@@ -1059,7 +1059,7 @@ pub(crate) fn module_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<
         return Vec::new();
     };
     let scope = scope_for_file(db, file);
-    let ctx = hir::module_ctx_for_scope(db, &scope);
+    let ctx = jvm_index::module_ctx_for_scope(db, &scope);
     let interner = &db.hir_state().interner;
     let resolver = crate::java::resolve::Resolver::for_item(db, file, &tree, top);
     let mut out = Vec::new();
@@ -1081,9 +1081,11 @@ pub(crate) fn module_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<
     // §7.7.1: an `exports`/`opens` directive must name a package that has
     // source files in the module — a package with no files is empty or does
     // not exist ([§7.7.1]).
-    if let Some(source_set) = hir::source_set_for_file(db, file) {
+    if let Some(source_set) = jvm_index::source_set_for_file(db, file) {
         for export in data.exports.iter().chain(data.opens.iter()) {
-            if hir::source_set_package_files(db, source_set.clone(), &export.package).is_empty() {
+            if jvm_index::source_set_package_files(db, source_set.clone(), &export.package)
+                .is_empty()
+            {
                 let range = range_ctx(db, file, tree.language).and_then(|(map, source)| {
                     ranges::module_exports_package_range(map, &source, export)
                 });
@@ -1178,7 +1180,7 @@ pub(crate) fn class_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<D
     fn walk(
         db: &dyn TyDatabase,
         file: FileId,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         tree: &hir_def::java::item_tree::ItemTree,
         id: hir_def::jvm::ids::ItemId,
         out: &mut Vec<DeclDiagnostic>,
@@ -1204,7 +1206,7 @@ pub(crate) fn class_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<D
 fn check_class(
     db: &dyn TyDatabase,
     file: FileId,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     tree: &hir_def::java::item_tree::ItemTree,
     key: &crate::jvm::member::ClassKey,
     item: hir_def::jvm::ids::ItemId,
@@ -1620,7 +1622,7 @@ fn check_class(
             .as_reference(db)
             .map(|(name, _)| name.clone())
             .unwrap_or_else(|| class.name.clone());
-        let bodies = hir::file_body_tree(db, file);
+        let bodies = jvm_index::file_body_tree(db, file);
         for child in &class.body {
             let ItemData::Method(method) = tree.data(*child) else {
                 continue;
@@ -2157,7 +2159,7 @@ fn check_class(
             && is_enum
             && let Some(body_id) = method.body()
         {
-            let bodies = hir::file_body_tree(db, file);
+            let bodies = jvm_index::file_body_tree(db, file);
             let body = bodies.body(body_id);
             let super_call = body.stmts.iter().find_map(|&stmt| {
                 let hir_expand::body::StmtData::Expr(expr) = bodies.stmt(stmt) else {
@@ -2303,13 +2305,13 @@ fn same_signature(db: &dyn TyDatabase, a: &MethodData, b: &MethodData) -> bool {
 /// partial classpaths conservative.
 fn is_override_annotation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &crate::java::resolve::Resolver,
     name: &Name,
 ) -> bool {
     let resolved = crate::java::resolve::candidate_fqns(resolver, name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(db, scope, candidate.as_str()).is_some());
+        .find(|candidate| jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some());
     match resolved {
         Some(fqn) => fqn.as_str() == "java.lang.Override",
         None => name.as_str().rsplit('.').next() == Some("Override"),
@@ -2324,7 +2326,7 @@ fn is_override_annotation(
 /// [§9.4.1.2](https://docs.oracle.com/javase/specs/jls/se26/html/jls-9.html#jls-9.4.1.2)).
 fn related(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     a: &crate::jvm::member::ClassKey,
     b: &crate::jvm::member::ClassKey,
 ) -> bool {
@@ -2349,7 +2351,7 @@ fn weaker_access(a: Access, b: Access) -> bool {
 /// §8.4.8.3 throws rule only constrains checked additions: an override may
 /// always declare `RuntimeException`/`Error` (and their subtypes) that the
 /// overridden method does not.
-fn is_checked(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) -> bool {
+fn is_checked(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, ty: &Ty) -> bool {
     let throwable = Ty::reference(db, "java.lang.Throwable", Vec::new());
     if !subtyping::is_assignable(db, scope, ty, &throwable) {
         return false;
@@ -2402,7 +2404,11 @@ fn declaring_interface_item(
 /// itself. Works for source and library types alike; the visited set keeps the
 /// walk finite on cyclic graphs. `supertypes_impl` yields only the *direct*
 /// supertypes, so one BFS level at a time.
-fn in_own_supertype_cycle(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &str) -> bool {
+fn in_own_supertype_cycle(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    fqn: &str,
+) -> bool {
     let mut visited: FxHashSet<String> = FxHashSet::default();
     let mut stack: Vec<Ty> = vec![Ty::reference(db, fqn, Vec::new())];
     while let Some(ty) = stack.pop() {
@@ -2440,7 +2446,7 @@ fn in_own_supertype_cycle(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn
 /// an unresolvable supertype reference, returns `None`.
 fn first_concrete_descendant_super(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     tree: Arc<ItemTree>,
     item: hir_def::jvm::ids::ItemId,
     resolver: &crate::java::resolve::Resolver,
@@ -2468,8 +2474,8 @@ fn first_concrete_descendant_super(
         // its superclass's — walk up, reporting nothing until a concrete
         // descendant is reached ([§8.8.9]).
         let (fqn, _) = super_ty.as_reference(db)?;
-        let resolved = hir::fqn_resolve(db, scope, fqn.as_str())?;
-        let hir::Resolved::Source(next) = resolved else {
+        let resolved = jvm_index::fqn_resolve(db, scope, fqn.as_str())?;
+        let jvm_index::Resolved::Source(next) = resolved else {
             return None;
         };
         let next_tree: Arc<ItemTree> = hir_def::java::plugin::tree(db, next.file);
@@ -2491,9 +2497,9 @@ fn first_concrete_descendant_super(
 /// §8.8.9/[§8.1.3]: the member-set name of a class's constructor: the class's
 /// simple name for a source class, `<init>` for a library classfile
 /// ([JVMS §4.6](https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.6)).
-fn fqn_ctor_name(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &str) -> String {
-    match hir::fqn_resolve(db, scope, fqn) {
-        Some(hir::Resolved::Library(_)) => "<init>".to_owned(),
+fn fqn_ctor_name(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, fqn: &str) -> String {
+    match jvm_index::fqn_resolve(db, scope, fqn) {
+        Some(jvm_index::Resolved::Library(_)) => "<init>".to_owned(),
         _ => fqn.rsplit('.').next().unwrap_or(fqn).to_owned(),
     }
 }
@@ -2511,17 +2517,17 @@ fn fqn_ctor_name(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &str) -
 /// ([§8.8.9]) is part of its member set.
 fn has_no_accessible_no_arg_ctor(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     super_ty: &Ty,
     ctx: &InvocationContext,
 ) -> Option<bool> {
-    use hir::ClassOrModuleStub;
+    use jvm_index::ClassOrModuleStub;
     let (fqn, _) = super_ty.as_reference(db)?;
-    let name = match hir::fqn_resolve(db, scope, fqn.as_str()) {
-        Some(hir::Resolved::Library(library)) => {
+    let name = match jvm_index::fqn_resolve(db, scope, fqn.as_str()) {
+        Some(jvm_index::Resolved::Library(library)) => {
             // A library stub with no `<init>` at all is a partial record; only
             // a declared constructor set is conclusive.
-            let record = hir::class_record(db, &library)?;
+            let record = jvm_index::class_record(db, &library)?;
             let ClassOrModuleStub::Class(class) = record.as_ref() else {
                 return Some(false);
             };
@@ -2536,10 +2542,12 @@ fn has_no_accessible_no_arg_ctor(
             }
             "<init>"
         }
-        Some(hir::Resolved::Source(_)) => fqn.as_str().rsplit('.').next().unwrap_or(fqn.as_str()),
+        Some(jvm_index::Resolved::Source(_)) => {
+            fqn.as_str().rsplit('.').next().unwrap_or(fqn.as_str())
+        }
         // A Kotlin file's facade: the class's *simple* name is what its
         // `<init>` is looked up under (the Java `new` path's own naming).
-        Some(hir::Resolved::Facade { .. }) => {
+        Some(jvm_index::Resolved::Facade { .. }) => {
             fqn.as_str().rsplit('.').next().unwrap_or(fqn.as_str())
         }
         // An unresolvable superclass is already reported as a missing type by
@@ -2907,7 +2915,7 @@ fn recursive_constructor_diagnostics(
     if ctors.is_empty() {
         return Vec::new();
     }
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     // The arity of each constructor: the declared formal-parameter count, or —
     // for a record *compact* constructor ([§8.10.4]) — the record's component
     // count. A compact constructor is lowered without a formal parameter list
@@ -3002,14 +3010,14 @@ fn is_class_like(data: &ItemData) -> bool {
 /// (conservative — the sealed checks then stay silent).
 fn sealed_permits(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> Option<Vec<Name>> {
-    let resolved = hir::fqn_resolve(db, scope, fqn)?;
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn)?;
     match resolved {
         // A Kotlin file's facade is neither sealed nor a permitted subclass.
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let (tree, item) = crate::java::resolve::java_item(db, source)?;
             let (permits, sealed) = match tree.data(item) {
@@ -3037,9 +3045,9 @@ fn sealed_permits(
                     .collect(),
             )
         }
-        hir::Resolved::Library(resolved_class) => {
-            let record = hir::class_record(db, &resolved_class)?;
-            let hir::ClassOrModuleRecord::Class(class) = record.as_ref() else {
+        jvm_index::Resolved::Library(resolved_class) => {
+            let record = jvm_index::class_record(db, &resolved_class)?;
+            let jvm_index::ClassOrModuleRecord::Class(class) = record.as_ref() else {
                 return None;
             };
             // A library class is sealed exactly when its classfile carries a
@@ -3075,7 +3083,7 @@ fn sealed_subclass_diagnostics(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &hir_def::java::item_tree::ItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &crate::java::resolve::Resolver,
     item: hir_def::jvm::ids::ItemId,
     key: &crate::jvm::member::ClassKey,
@@ -3151,14 +3159,14 @@ fn file_has_direct_subclass(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &hir_def::java::item_tree::ItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> bool {
     fn walk(
         db: &dyn TyDatabase,
         file: FileId,
         tree: &hir_def::java::item_tree::ItemTree,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         id: hir_def::jvm::ids::ItemId,
         fqn: &str,
     ) -> bool {
@@ -3278,7 +3286,7 @@ fn public_type_diagnostics(
 /// javac's `duplicate class` error, which spans files as well as a single
 /// file. For every top-level class-like declaration of `file`, the set of
 /// declarations sharing its FQN is the per-(source set, package, FQN) symbol
-/// bucket ([`hir::source_set_fqn_symbols`]) — an O(1) slice of the
+/// bucket ([`jvm_index::source_set_fqn_symbols`]) — an O(1) slice of the
 /// salsa-tracked per-package symbol index — and the *non-first* occurrences
 /// are reported, each in its own file, at the declaration's name range
 /// (matching javac, which reports on the later declaration).
@@ -3296,7 +3304,7 @@ fn duplicate_class_diagnostics(
     if tree.language != LanguageKind::Java {
         return Vec::new();
     }
-    let Some(source_set) = hir::source_set_for_file(db, file) else {
+    let Some(source_set) = jvm_index::source_set_for_file(db, file) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -3305,7 +3313,7 @@ fn duplicate_class_diagnostics(
         if !is_class_like(data) {
             continue;
         }
-        let Some(fqn) = hir::source_class_fqn(db, file, top) else {
+        let Some(fqn) = jvm_index::source_class_fqn(db, file, top) else {
             continue;
         };
         // The declaring file's package is the FQN minus its last segment (a
@@ -3313,20 +3321,20 @@ fn duplicate_class_diagnostics(
         // ([JLS §7.4.2]) leaves a bare simple name.
         let package = fqn.as_str().rsplit_once('.').map(|(p, _)| p).unwrap_or("");
         // The per-(source set, package, FQN) symbol bucket
-        // ([`hir::source_set_fqn_symbols`]) is salsa-tracked per FQN, so a text
+        // ([`jvm_index::source_set_fqn_symbols`]) is salsa-tracked per FQN, so a text
         // edit that changes a *different* declaration leaves this file's check
         // memoized; only files declaring the edited FQN re-run it.
-        let class_refs: Vec<hir::SourceSymbolRef> =
-            hir::source_set_fqn_symbols(db, source_set.clone(), &Name::new(package), &fqn)
+        let class_refs: Vec<jvm_index::SourceSymbolRef> =
+            jvm_index::source_set_fqn_symbols(db, source_set.clone(), &Name::new(package), &fqn)
                 .iter()
                 .filter(|reference| {
                     matches!(
                         reference.symbol.kind,
-                        hir::SourceSymbolKind::Class
-                            | hir::SourceSymbolKind::Interface
-                            | hir::SourceSymbolKind::Enum
-                            | hir::SourceSymbolKind::Record
-                            | hir::SourceSymbolKind::Annotation
+                        jvm_index::SourceSymbolKind::Class
+                            | jvm_index::SourceSymbolKind::Interface
+                            | jvm_index::SourceSymbolKind::Enum
+                            | jvm_index::SourceSymbolKind::Record
+                            | jvm_index::SourceSymbolKind::Annotation
                     )
                 })
                 .cloned()
@@ -3383,7 +3391,7 @@ fn final_field_diagnostics(
     if fields.is_empty() {
         return Vec::new();
     }
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
 
     /// Whether `name` is assigned anywhere in the statement forest of a body:
     /// a write `name = …` (or `this.name = …`) with a **plain** assignment
@@ -3918,7 +3926,7 @@ fn local_class_diagnostics(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &hir_def::java::item_tree::ItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
 ) -> Vec<DeclDiagnostic> {
     if tree.local_types.is_empty() {
         return Vec::new();
@@ -4003,26 +4011,26 @@ fn local_class_diagnostics(
 /// Whether the resolved class is `sealed` ([JLS §8.1.1.2]): a source class with
 /// the modifier, or a classpath class whose classfile carries a
 /// `PermittedSubclasses` attribute ([JVMS §4.7.31]).
-fn class_is_sealed(db: &dyn TyDatabase, resolved: &hir::Resolved) -> bool {
+fn class_is_sealed(db: &dyn TyDatabase, resolved: &jvm_index::Resolved) -> bool {
     match resolved {
         // A Kotlin file's facade carries no Kotlin `sealed` modifier.
-        hir::Resolved::Facade { file, .. } => {
+        jvm_index::Resolved::Facade { file, .. } => {
             let _ = file;
             false
         }
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let Some((tree, item)) = crate::java::resolve::java_item(db, *source) else {
                 return false;
             };
             class_like_modifiers(tree.data(item)).is_some_and(|m| m.is_sealed())
         }
-        hir::Resolved::Library(class) => hir::class_record(db, class)
+        jvm_index::Resolved::Library(class) => jvm_index::class_record(db, class)
             .and_then(|record| match record.as_ref() {
-                hir::ClassOrModuleRecord::Class(class) => {
+                jvm_index::ClassOrModuleRecord::Class(class) => {
                     Some(!class.permitted_subclasses.is_empty())
                 }
-                hir::ClassOrModuleRecord::Module(_) => None,
+                jvm_index::ClassOrModuleRecord::Module(_) => None,
             })
             .unwrap_or(false),
     }
@@ -4110,11 +4118,11 @@ fn local_redeclaration_is_legal(
 
 /// The simple name a diagnostic about a resolved class renders ([§6.7]): the
 /// source declaration's own name, or the last segment of a classpath name.
-fn class_simple_name(db: &dyn TyDatabase, resolved: &hir::Resolved) -> Name {
+fn class_simple_name(db: &dyn TyDatabase, resolved: &jvm_index::Resolved) -> Name {
     match resolved {
         // A facade is named after the file it belongs to.
-        hir::Resolved::Facade { fqn, .. } => Name::new(fqn.simple_name()),
-        hir::Resolved::Source(source) => match crate::java::resolve::java_item(db, *source) {
+        jvm_index::Resolved::Facade { fqn, .. } => Name::new(fqn.simple_name()),
+        jvm_index::Resolved::Source(source) => match crate::java::resolve::java_item(db, *source) {
             Some((tree, item)) => tree
                 .data(item)
                 .name()
@@ -4127,7 +4135,7 @@ fn class_simple_name(db: &dyn TyDatabase, resolved: &hir::Resolved) -> Name {
                 .map(|fqn| Name::new(fqn.simple_name()))
                 .unwrap_or_else(|| Name::new("")),
         },
-        hir::Resolved::Library(_) => Name::new(resolved.fqn(db).as_name().simple_name()),
+        jvm_index::Resolved::Library(_) => Name::new(resolved.fqn(db).as_name().simple_name()),
     }
 }
 

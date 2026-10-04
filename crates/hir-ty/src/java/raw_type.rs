@@ -18,7 +18,7 @@ use crate::jvm::db::TyDatabase;
 /// The check is on the *written* form: `List<String>`'s erasure is also named
 /// `List` with no arguments, so this must be asked of the reference as it
 /// appears in source (or in a classfile `Signature`), never of an erased type.
-pub fn is_raw_reference(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) -> bool {
+pub fn is_raw_reference(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, ty: &Ty) -> bool {
     let TyKind::Reference { name, args, .. } = ty.kind(db) else {
         return false;
     };

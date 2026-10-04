@@ -6,7 +6,7 @@
 //! language layers extend it: [`crate::java::db::JavaDatabase`] adds the Java
 //! file HIR and lowering, [`crate::kotlin::db::KotlinDatabase`] scaffolds the
 //! Kotlin side. Class resolution and classpath access are served by the
-//! concrete database's `hir_state` (see `hir::JvmDatabase`).
+//! concrete database's `hir_state` (see `jvm_index::JvmDatabase`).
 
 use base_db::salsa;
 use hir_expand::db::DefDatabase as BaseDefDatabase;

@@ -6,7 +6,7 @@
 //! so an API the runtime provides but the source set's `--release` does not is
 //! otherwise invisible — javac rejects it, because it resolves the platform
 //! against the release's view of the SDK's `ct.sym`
-//! ([`hir::ct_sym`]). This module asks that archive the same question about the
+//! ([`jvm_index::ct_sym`]). This module asks that archive the same question about the
 //! API a reference *did* resolve to, and renders the report.
 //!
 //! The check is additive by construction: it runs only on a reference that
@@ -46,31 +46,32 @@ impl ReleaseApi {}
 /// The release `scope`'s files compile against
 /// ([JEP 247](https://openjdk.org/jeps/247)). `Classpath` and `JdkBuiltins`
 /// scopes have no source set and therefore no release.
-pub(crate) fn release_of(db: &dyn TyDatabase, scope: &hir::ResolutionScope) -> Option<u8> {
+pub(crate) fn release_of(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope) -> Option<u8> {
     match scope {
-        hir::ResolutionScope::SourceSet(source_set) => {
-            hir::release_for_source_set(db, source_set.clone())
+        jvm_index::ResolutionScope::SourceSet(source_set) => {
+            jvm_index::release_for_source_set(db, source_set.clone())
         }
-        hir::ResolutionScope::Classpath(_) | hir::ResolutionScope::JdkBuiltins => None,
+        jvm_index::ResolutionScope::Classpath(_) | jvm_index::ResolutionScope::JdkBuiltins => None,
     }
 }
 
 /// Whether `fqn` belongs to a platform library of the workspace (the JDK
 /// built-ins) rather than to a third-party jar, which the release view says
 /// nothing about.
-fn is_platform(db: &dyn TyDatabase, library: hir::LibraryId) -> bool {
-    hir::jdk_builtin_libraries(db).contains(&library)
+fn is_platform(db: &dyn TyDatabase, library: jvm_index::LibraryId) -> bool {
+    jvm_index::jdk_builtin_libraries(db).contains(&library)
 }
 
 /// JEP 247: `Some((found, added))` when `name` — a name a type reference
 /// resolved to — is a platform class the release view does not provide.
 pub(crate) fn class_of_reference(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
 ) -> Option<(u8, u8)> {
     let release = release_of(db, scope)?;
-    let hir::Resolved::Library(class) = hir::fqn_resolve(db, scope, name.as_str())? else {
+    let jvm_index::Resolved::Library(class) = jvm_index::fqn_resolve(db, scope, name.as_str())?
+    else {
         // A source class is not platform API.
         return None;
     };
@@ -78,7 +79,7 @@ pub(crate) fn class_of_reference(
         return None;
     }
     let fqn = db.hir_state().interner.resolve(&class.entry.fqn);
-    hir::ct_sym_class_not_in_release(db, class.library, release, fqn)
+    jvm_index::ct_sym_class_not_in_release(db, class.library, release, fqn)
 }
 
 /// JEP 247 for one member of the platform class `owner` (its binary FQN,
@@ -91,18 +92,18 @@ pub(crate) fn class_of_reference(
 /// ([JLS §7.5.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-7.html#jls-7.5.4)).
 pub(crate) fn member_of_owner(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     owner: &str,
     name: &str,
     descriptor: Option<&str>,
 ) -> Option<(u8, u8)> {
     let release = release_of(db, scope)?;
-    let hir::Resolved::Library(class) = hir::fqn_resolve(db, scope, owner)? else {
+    let jvm_index::Resolved::Library(class) = jvm_index::fqn_resolve(db, scope, owner)? else {
         // A source class is not platform API.
         return None;
     };
     if !is_platform(db, class.library) {
         return None;
     }
-    hir::ct_sym_member_not_in_release(db, class.library, release, owner, name, descriptor)
+    jvm_index::ct_sym_member_not_in_release(db, class.library, release, owner, name, descriptor)
 }

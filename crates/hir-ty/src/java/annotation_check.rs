@@ -38,7 +38,7 @@
 //! [`AnnotationRef`]s (whose element values are the enum constants of
 //! `java.lang.annotation.ElementType`), and from *library* classes via the
 //! classfile `RuntimeVisibleAnnotations` and method-signature stubs
-//! ([`hir::ClassRecord`]), so a `@Target(ElementType.X)` from a dependency jar
+//! ([`jvm_index::ClassRecord`]), so a `@Target(ElementType.X)` from a dependency jar
 //! is honored the same way. The elements of a library annotation type are the
 //! methods its classfile declares ([§9.6.1]); an annotation interface that
 //! declares no methods declares no elements, so every pair of a normal
@@ -103,7 +103,7 @@ pub(crate) fn annotation_diagnostics(
     let Some((map, source)) = range_ctx(db, file, tree.language) else {
         return Vec::new();
     };
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let mut out = Vec::new();
 
     #[allow(clippy::too_many_arguments)]
@@ -112,7 +112,7 @@ pub(crate) fn annotation_diagnostics(
         file: FileId,
         tree: &ItemTree,
         bodies: &BodyTree,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         map: &hir_expand::ast_id_map::AstIdMap,
         source: &syntax::SourceFile,
         id: ItemId,
@@ -265,7 +265,7 @@ fn check_functional_interface(
     // method rather than declare it. The member set is the one the override
     // checks use: a declaration-level enumeration of the interface's own
     // hierarchies.
-    let Some(fqn) = hir::source_class_fqn(db, file, item) else {
+    let Some(fqn) = jvm_index::source_class_fqn(db, file, item) else {
         return;
     };
     let class_ty = Ty::reference(db, Name::new(fqn.as_str()), Vec::new());
@@ -471,7 +471,7 @@ fn check_target(
 fn check_variable_target(
     db: &dyn TyDatabase,
     resolver: &Resolver,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
     range: Option<rowan::TextRange>,
     element_type: &'static str,
@@ -514,7 +514,7 @@ fn check_variable_target(
 fn type_context_applicable(
     db: &dyn TyDatabase,
     resolver: &Resolver,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
 ) -> bool {
     let Some(targets) = resolve_annotation_type(db, resolver, scope, name) else {
@@ -1723,13 +1723,13 @@ fn narrows_to(value: i64, target: PrimitiveType) -> Option<bool> {
 /// like any type name ([JLS §6.5.5.1]); `None` when it does not resolve.
 fn resolve_name_ty(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
 ) -> Option<Ty> {
     let fqn = candidate_fqns(resolver, name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
+        .find(|candidate| jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
     Some(Ty::reference(db, fqn.as_str(), Vec::new()))
 }
 
@@ -1741,17 +1741,17 @@ fn resolve_name_ty(
 /// enum-constant element values of an annotation ([§9.7.1]).
 fn enum_constants(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<Vec<String>> {
     let TyKind::Reference { name, .. } = ty.kind(db) else {
         return None;
     };
-    let resolved = hir::fqn_resolve(db, scope, name.as_str())?;
+    let resolved = jvm_index::fqn_resolve(db, scope, name.as_str())?;
     match resolved {
         // A Kotlin file's facade declares no enum.
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let (tree, item) = crate::java::resolve::java_item(db, source)?;
             if !matches!(tree.data(item), ItemData::Enum(_)) {
@@ -1765,12 +1765,14 @@ fn enum_constants(
             }
             Some(out)
         }
-        hir::Resolved::Library(resolved) => {
-            let record = hir::class_record(db, &resolved)?;
-            let hir::ClassOrModuleRecord::Class(class) = record.as_ref() else {
+        jvm_index::Resolved::Library(resolved) => {
+            let record = jvm_index::class_record(db, &resolved)?;
+            let jvm_index::ClassOrModuleRecord::Class(class) = record.as_ref() else {
                 return None;
             };
-            if hir::ClassKind::from_flags(class.flags, class.is_record) != hir::ClassKind::Enum {
+            if jvm_index::ClassKind::from_flags(class.flags, class.is_record)
+                != jvm_index::ClassKind::Enum
+            {
                 return None;
             }
             Some(
@@ -1813,19 +1815,19 @@ struct AnnotationType {
 /// check).
 fn annotation_type(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
 ) -> Option<AnnotationType> {
     let fqn = candidate_fqns(resolver, name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
+        .find(|candidate| jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
     let fqn = fqn.as_str();
     let ty = Ty::reference(db, fqn, Vec::new());
-    match hir::fqn_resolve(db, scope, fqn)? {
+    match jvm_index::fqn_resolve(db, scope, fqn)? {
         // A Kotlin file's facade is not an annotation interface.
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let (source_tree, item) = crate::java::resolve::java_item(db, source)?;
             if !matches!(source_tree.data(item), ItemData::Annotation(_)) {
@@ -1862,15 +1864,15 @@ fn annotation_type(
             }
             Some(AnnotationType { ty, elements: out })
         }
-        hir::Resolved::Library(resolved) => {
-            let record = hir::class_record(db, &resolved)?;
-            let hir::ClassOrModuleRecord::Class(class) = record.as_ref() else {
+        jvm_index::Resolved::Library(resolved) => {
+            let record = jvm_index::class_record(db, &resolved)?;
+            let jvm_index::ClassOrModuleRecord::Class(class) = record.as_ref() else {
                 return None;
             };
             // §9.6.1: an annotation element is an abstract method stub whose
             // return type ([§8.4.5]) is the element's declared type.
-            if hir::ClassKind::from_flags(class.flags, class.is_record)
-                != hir::ClassKind::Annotation
+            if jvm_index::ClassKind::from_flags(class.flags, class.is_record)
+                != jvm_index::ClassKind::Annotation
             {
                 return None;
             }
@@ -1947,16 +1949,16 @@ fn names_member_method(cx: &ValueCtx<'_>, annotation_ty: &Ty, name: &Name) -> bo
 fn resolve_annotation_type(
     db: &dyn TyDatabase,
     resolver: &Resolver,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
 ) -> Option<Vec<String>> {
     let fqn = candidate_fqns(resolver, name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
+        .find(|candidate| jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some())?;
     let fqn = fqn.as_str();
-    match hir::fqn_resolve(db, scope, fqn)? {
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Source(source) => {
+    match jvm_index::fqn_resolve(db, scope, fqn)? {
+        jvm_index::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let (source_tree, item) = crate::java::resolve::java_item(db, source)?;
             match source_tree.data(item) {
@@ -1982,7 +1984,7 @@ fn resolve_annotation_type(
                 _ => None,
             }
         }
-        hir::Resolved::Library(resolved) => library_target_args(db, resolved),
+        jvm_index::Resolved::Library(resolved) => library_target_args(db, resolved),
     }
 }
 
@@ -1995,13 +1997,13 @@ fn resolve_annotation_type(
 /// import ([§6.5.5.1]) is not mistaken for it.
 fn is_target_annotation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     annotation: &ItemAnnotationRef,
 ) -> bool {
     candidate_fqns(resolver, &annotation.name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(db, scope, candidate.as_str()).is_some())
+        .find(|candidate| jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some())
         .is_some_and(|candidate| candidate.as_str() == "java.lang.annotation.Target")
 }
 
@@ -2031,9 +2033,12 @@ fn collect_enum_names(value: &ItemAnnotationValue, out: &mut Vec<String>) {
 
 /// The `ElementType` constant names of a *library* annotation type's
 /// `@Target` — read from the classfile `RuntimeVisibleAnnotations` stub.
-fn library_target_args(db: &dyn TyDatabase, resolved: hir::ResolvedClass) -> Option<Vec<String>> {
-    let record = hir::class_record(db, &resolved)?;
-    let hir::ClassOrModuleRecord::Class(class) = record.as_ref() else {
+fn library_target_args(
+    db: &dyn TyDatabase,
+    resolved: jvm_index::ResolvedClass,
+) -> Option<Vec<String>> {
+    let record = jvm_index::class_record(db, &resolved)?;
+    let jvm_index::ClassOrModuleRecord::Class(class) = record.as_ref() else {
         return None;
     };
     for annotation in &class.annotations {
@@ -2064,16 +2069,16 @@ fn targets_contain(targets: &[String], et: &str) -> bool {
 
 fn collect_library_enum_names(
     db: &dyn TyDatabase,
-    value: &hir::AnnotationValue<hir::Symbol>,
+    value: &jvm_index::AnnotationValue<jvm_index::Symbol>,
     out: &mut Vec<String>,
 ) {
     match value {
-        hir::AnnotationValue::Array(values) => {
+        jvm_index::AnnotationValue::Array(values) => {
             for value in values {
                 collect_library_enum_names(db, value, out);
             }
         }
-        hir::AnnotationValue::Enum { entry_name, .. } => {
+        jvm_index::AnnotationValue::Enum { entry_name, .. } => {
             out.push(db.hir_state().interner.resolve(entry_name).to_owned());
         }
         _ => {}

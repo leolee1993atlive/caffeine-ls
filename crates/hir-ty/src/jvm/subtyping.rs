@@ -23,7 +23,7 @@ use crate::ty::{BoundKind, Ty, TyData, TyKind, WildcardBound};
 ///
 /// Types outside the resolvable hierarchy (source classes, type variables,
 /// primitives) yield no supertypes.
-pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) -> Vec<Ty> {
+pub fn supertypes(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, ty: &Ty) -> Vec<Ty> {
     let scope = ScopeId::new(db, ScopeKind::from_scope(scope));
     supertypes_query(db, scope, ty.id)
 }
@@ -41,7 +41,7 @@ pub(crate) fn supertypes_query(db: &dyn TyDatabase, scope: ScopeId, ty: TyData) 
 /// class whose type arguments are still being solved.
 pub(crate) fn supertypes_impl(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Vec<Ty> {
     match ty.kind(db) {
@@ -52,8 +52,10 @@ pub(crate) fn supertypes_impl(
                 return Vec::new();
             };
             match &resolved {
-                hir::Resolved::Library(_) => crate::lang::classfile().supertypes(db, scope, *ty),
-                hir::Resolved::Source(_) | hir::Resolved::Facade { .. } => {
+                jvm_index::Resolved::Library(_) => {
+                    crate::lang::classfile().supertypes(db, scope, *ty)
+                }
+                jvm_index::Resolved::Source(_) | jvm_index::Resolved::Facade { .. } => {
                     crate::lang::for_class(db, &resolved)
                         .map(|language| {
                             language
@@ -77,7 +79,12 @@ pub(crate) fn supertypes_impl(
 
 /// Whether `sub` is a subtype of `sup`
 /// ([JLS §4.10](https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.10)).
-pub fn is_subtype(db: &dyn TyDatabase, scope: &hir::ResolutionScope, sub: &Ty, sup: &Ty) -> bool {
+pub fn is_subtype(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    sub: &Ty,
+    sup: &Ty,
+) -> bool {
     let scope = ScopeId::new(db, ScopeKind::from_scope(scope));
     is_subtype_query(db, scope, sub.id, sup.id)
 }

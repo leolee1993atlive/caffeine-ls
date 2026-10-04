@@ -1,7 +1,7 @@
 //! The JVM type-database substrate: the salsa database trait and the interned
 //! keys the shared queries are memoized on.
 //!
-//! [`TyDatabase`] extends [`hir::HirDatabase`] with everything a type layer
+//! [`TyDatabase`] extends [`jvm_index::HirDatabase`] with everything a type layer
 //! needs — a language adds its own tracked queries as an extension trait
 //! (a language's own query extension). [`ItemKey`], [`ScopeId`] and [`ContextKey`] exist so
 //! that per-item work, the per-pair subtype/supertype walks and the member set
@@ -15,11 +15,11 @@ use vfs::FileId;
 
 use crate::jvm::member_set::{InvocationContext, InvocationMode};
 
-/// The type database: [`hir::HirDatabase`] plus the type-system API of this
+/// The type database: [`jvm_index::HirDatabase`] plus the type-system API of this
 /// crate. Concrete databases (e.g. `ide-db`'s `RootDatabase`) implement this
 /// and salsa's `#[salsa::db]` machinery wires up the tracked queries.
 #[salsa::db]
-pub trait TyDatabase: hir::HirDatabase {}
+pub trait TyDatabase: jvm_index::HirDatabase {}
 
 /// A workspace-unique item id. Interned so it can key tracked queries; the
 /// underlying [`FileId`]/[`ItemId`] pair is `Copy`, so `#[returns(copy)]` keeps
@@ -33,40 +33,48 @@ pub struct ItemKey {
 }
 
 /// The set of libraries a type query may see: the interned analogue of
-/// [`hir::ResolutionScope`]. Interned (rather than passed as a plain value) so
+/// [`jvm_index::ResolutionScope`]. Interned (rather than passed as a plain value) so
 /// it can key the memoized subtype/supertype queries in [`crate::jvm::subtyping`].
 #[salsa::interned(unsafe(no_lifetime), debug, revisions = usize::MAX)]
 pub struct ScopeId {
     pub kind: ScopeKind,
 }
 
-/// The interned form of [`hir::ResolutionScope`].
+/// The interned form of [`jvm_index::ResolutionScope`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScopeKind {
     /// A workspace source set: its ordered classpath.
-    SourceSet(hir::SourceSetId),
+    SourceSet(jvm_index::SourceSetId),
     /// An explicit, ordered library list (tests / synthetic scopes).
-    Classpath(Vec<hir::LibraryId>),
+    Classpath(Vec<jvm_index::LibraryId>),
     /// Only the JDK built-ins (jimage / rt.jar).
     JdkBuiltins,
 }
 
 impl ScopeKind {
-    /// The interning data for a [`hir::ResolutionScope`].
-    pub fn from_scope(scope: &hir::ResolutionScope) -> Self {
+    /// The interning data for a [`jvm_index::ResolutionScope`].
+    pub fn from_scope(scope: &jvm_index::ResolutionScope) -> Self {
         match scope {
-            hir::ResolutionScope::SourceSet(source_set) => ScopeKind::SourceSet(source_set.clone()),
-            hir::ResolutionScope::Classpath(libraries) => ScopeKind::Classpath(libraries.clone()),
-            hir::ResolutionScope::JdkBuiltins => ScopeKind::JdkBuiltins,
+            jvm_index::ResolutionScope::SourceSet(source_set) => {
+                ScopeKind::SourceSet(source_set.clone())
+            }
+            jvm_index::ResolutionScope::Classpath(libraries) => {
+                ScopeKind::Classpath(libraries.clone())
+            }
+            jvm_index::ResolutionScope::JdkBuiltins => ScopeKind::JdkBuiltins,
         }
     }
 
-    /// The [`hir::ResolutionScope`] this kind was interned from.
-    pub fn to_scope(&self) -> hir::ResolutionScope {
+    /// The [`jvm_index::ResolutionScope`] this kind was interned from.
+    pub fn to_scope(&self) -> jvm_index::ResolutionScope {
         match self {
-            ScopeKind::SourceSet(source_set) => hir::ResolutionScope::SourceSet(source_set.clone()),
-            ScopeKind::Classpath(libraries) => hir::ResolutionScope::Classpath(libraries.clone()),
-            ScopeKind::JdkBuiltins => hir::ResolutionScope::JdkBuiltins,
+            ScopeKind::SourceSet(source_set) => {
+                jvm_index::ResolutionScope::SourceSet(source_set.clone())
+            }
+            ScopeKind::Classpath(libraries) => {
+                jvm_index::ResolutionScope::Classpath(libraries.clone())
+            }
+            ScopeKind::JdkBuiltins => jvm_index::ResolutionScope::JdkBuiltins,
         }
     }
 }

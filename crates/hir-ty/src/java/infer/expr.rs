@@ -1114,8 +1114,8 @@ impl InferCtx<'_> {
                 }
                 let is_source = self.receiver_fqn(&receiver).is_some_and(|fqn| {
                     matches!(
-                        hir::fqn_resolve(self.db, &self.scope, fqn),
-                        Some(hir::Resolved::Source(_))
+                        jvm_index::fqn_resolve(self.db, &self.scope, fqn),
+                        Some(jvm_index::Resolved::Source(_))
                     )
                 });
                 // §8.9.2/[§15.11]: report a `Type.Name` that is neither a field
@@ -1174,15 +1174,15 @@ impl InferCtx<'_> {
             return false;
         };
         let is_library = matches!(
-            hir::fqn_resolve(self.db, &self.scope, fqn),
-            Some(hir::Resolved::Library(_))
+            jvm_index::fqn_resolve(self.db, &self.scope, fqn),
+            Some(jvm_index::Resolved::Library(_))
         );
         let candidate = if is_library {
             format!("{fqn}${name}")
         } else {
             format!("{fqn}.{name}")
         };
-        hir::fqn_resolve(self.db, &self.scope, &candidate).is_some()
+        jvm_index::fqn_resolve(self.db, &self.scope, &candidate).is_some()
     }
 
     /// `None` for a non-reference (array, type variable, primitive, error).
@@ -1198,14 +1198,14 @@ impl InferCtx<'_> {
         let Some(fqn) = self.receiver_fqn(receiver) else {
             return false;
         };
-        let resolved = hir::fqn_resolve(self.db, &self.scope, fqn);
-        let Some(hir::Resolved::Library(class)) = resolved else {
+        let resolved = jvm_index::fqn_resolve(self.db, &self.scope, fqn);
+        let Some(jvm_index::Resolved::Library(class)) = resolved else {
             return false;
         };
-        let Some(record) = hir::class_record(self.db, &class) else {
+        let Some(record) = jvm_index::class_record(self.db, &class) else {
             return false;
         };
-        let hir::ClassOrModuleStub::Class(class) = record.as_ref() else {
+        let jvm_index::ClassOrModuleStub::Class(class) = record.as_ref() else {
             return false;
         };
         classfile::stub::ClassKind::from_flags(class.flags, class.is_record)

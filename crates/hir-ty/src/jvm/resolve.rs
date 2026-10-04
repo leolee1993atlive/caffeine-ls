@@ -44,19 +44,19 @@ impl<'a> LibrarySignature<'a> {
 
 /// The declaration a reference type denotes: its declaration for a *local*
 /// class-like type ([JLS §14.3], [§6.7] — it has no canonical name to resolve),
-/// otherwise the class [`hir::fqn_resolve`] finds for its canonical name
+/// otherwise the class [`jvm_index::fqn_resolve`] finds for its canonical name
 /// against `scope`'s classpath.
 pub fn reference_class(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
-) -> Option<hir::Resolved> {
+) -> Option<jvm_index::Resolved> {
     let TyKind::Reference { name, local, .. } = ty.kind(db) else {
         return None;
     };
     match local {
-        Some(class) => Some(hir::Resolved::Source(*class)),
-        None => hir::fqn_resolve(db, scope, name.as_str()),
+        Some(class) => Some(jvm_index::Resolved::Source(*class)),
+        None => jvm_index::fqn_resolve(db, scope, name.as_str()),
     }
 }
 
@@ -88,16 +88,16 @@ pub fn library_class_binding(
 /// ([JLS §6.7](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.7)),
 /// or `None` for a source class (whose name is not a binary one — bindings
 /// against it are keyed by its declaring item, not by name).
-pub(crate) fn resolved_fqn(db: &dyn TyDatabase, resolved: &hir::Resolved) -> Option<Name> {
+pub(crate) fn resolved_fqn(db: &dyn TyDatabase, resolved: &jvm_index::Resolved) -> Option<Name> {
     match resolved {
-        hir::Resolved::Library(class) => {
+        jvm_index::Resolved::Library(class) => {
             let interner = &db.hir_state().interner;
             Some(Name::new(interner.resolve(&class.entry.fqn)))
         }
         // A facade's name is the one the compiler gives it: it is not a
         // *declaration*, so it has no binary name of its own either.
-        hir::Resolved::Facade { fqn, .. } => Some(fqn.clone()),
-        hir::Resolved::Source(_) => None,
+        jvm_index::Resolved::Facade { fqn, .. } => Some(fqn.clone()),
+        jvm_index::Resolved::Source(_) => None,
     }
 }
 
@@ -153,7 +153,7 @@ pub fn ty_from_type_ref<N>(
 
 /// Lowers a library [`TypeRef<Symbol>`] to a [`Ty`]. Library names are
 /// already fully qualified, so only the interner lookup is needed.
-pub fn ty_from_library(db: &dyn TyDatabase, tyref: &TypeRef<hir::Symbol>) -> Ty {
+pub fn ty_from_library(db: &dyn TyDatabase, tyref: &TypeRef<jvm_index::Symbol>) -> Ty {
     let interner = &db.hir_state().interner;
     ty_from_type_ref(
         db,
@@ -178,7 +178,7 @@ pub fn ty_from_library(db: &dyn TyDatabase, tyref: &TypeRef<hir::Symbol>) -> Ty 
 /// ([§6.4.1]).
 pub fn ty_from_library_signature(
     db: &dyn TyDatabase,
-    tyref: &TypeRef<hir::Symbol>,
+    tyref: &TypeRef<jvm_index::Symbol>,
     ctx: &LibrarySignature<'_>,
 ) -> Ty {
     let interner = &db.hir_state().interner;
@@ -195,14 +195,16 @@ pub fn ty_from_library_signature(
 /// [`crate::lang::classfile`]; a source class by the language that declares it.
 pub fn declared_type_param_scopes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Vec<(TypeVarScope, Vec<Ty>)> {
-    let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, scope, fqn.as_str()) else {
         return Vec::new();
     };
     match &resolved {
-        hir::Resolved::Library(_) => crate::lang::classfile().type_param_bounds(db, &resolved),
+        jvm_index::Resolved::Library(_) => {
+            crate::lang::classfile().type_param_bounds(db, &resolved)
+        }
         class => crate::lang::for_class(db, class)
             .map(|language| language.type_param_bounds(db, class))
             .unwrap_or_default(),
@@ -213,12 +215,12 @@ pub fn declared_type_param_scopes(
 /// is not a library class or carries no generic signature.
 pub(crate) fn library_type_param_bounds(
     db: &dyn TyDatabase,
-    resolved: &hir::Resolved,
+    resolved: &jvm_index::Resolved,
 ) -> Vec<(TypeVarScope, Vec<Ty>)> {
-    let hir::Resolved::Library(_) = resolved else {
+    let jvm_index::Resolved::Library(_) = resolved else {
         return Vec::new();
     };
-    let Some(info) = hir::class_generic_info(db, resolved) else {
+    let Some(info) = jvm_index::class_generic_info(db, resolved) else {
         return Vec::new();
     };
     let Some(owner) = resolved_fqn(db, resolved) else {

@@ -115,13 +115,13 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
     // Classes still to expand their supertype chains; `visited` keys on the
     // (file, item) pair so a chain reaching the same class twice (a diamond, or
     // a broken self-cyclic source) expands it once.
-    let mut queue: Vec<hir::SourceClass> = Vec::new();
+    let mut queue: Vec<jvm_index::SourceClass> = Vec::new();
     let mut visited: FxHashSet<(FileId, ItemId)> = FxHashSet::default();
 
     // 1. The imported declarations: an import names a class or a file facade
     //    the file's resolution consults even before any use of the name.
     for import in &tree.imports {
-        if let Some(resolved) = hir::fqn_resolve(db, &scope, import.path.as_str()) {
+        if let Some(resolved) = jvm_index::fqn_resolve(db, &scope, import.path.as_str()) {
             record_class(&resolved, file, &mut out, &mut queue, &mut visited);
         }
     }
@@ -130,7 +130,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
         let item = ItemId(id);
         // The declaration- and body-side references, walked as resolved types.
         {
-            let mut record = |name: &Name, local: Option<hir::SourceClass>| {
+            let mut record = |name: &Name, local: Option<jvm_index::SourceClass>| {
                 record_source(
                     db,
                     file,
@@ -185,10 +185,10 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
 
 /// The resolution scope `file` resolves a name in: its source set when a source
 /// root owns the file, the JDK built-ins alone otherwise.
-fn scope_for_file(db: &dyn TyDatabase, file: FileId) -> hir::ResolutionScope {
-    match hir::source_set_for_file(db, file) {
-        Some(source_set) => hir::ResolutionScope::SourceSet(source_set),
-        None => hir::ResolutionScope::JdkBuiltins,
+fn scope_for_file(db: &dyn TyDatabase, file: FileId) -> jvm_index::ResolutionScope {
+    match jvm_index::source_set_for_file(db, file) {
+        Some(source_set) => jvm_index::ResolutionScope::SourceSet(source_set),
+        None => jvm_index::ResolutionScope::JdkBuiltins,
     }
 }
 
@@ -208,17 +208,17 @@ fn scope_for_file(db: &dyn TyDatabase, file: FileId) -> hir::ResolutionScope {
 fn record_source(
     db: &dyn TyDatabase,
     file: FileId,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
-    local: Option<hir::SourceClass>,
+    local: Option<jvm_index::SourceClass>,
     out: &mut FxHashSet<FileId>,
-    queue: &mut Vec<hir::SourceClass>,
+    queue: &mut Vec<jvm_index::SourceClass>,
     visited: &mut FxHashSet<(FileId, ItemId)>,
 ) {
     if local.is_some() {
         return;
     }
-    if let Some(resolved) = hir::fqn_resolve(db, scope, name.as_str()) {
+    if let Some(resolved) = jvm_index::fqn_resolve(db, scope, name.as_str()) {
         record_class(&resolved, file, out, queue, visited);
     }
 }
@@ -227,14 +227,14 @@ fn record_source(
 /// queues a source *class* for the supertype-closure walk. `file`'s own
 /// declarations are not a *cross*-file dependency.
 fn record_class(
-    resolved: &hir::Resolved,
+    resolved: &jvm_index::Resolved,
     file: FileId,
     out: &mut FxHashSet<FileId>,
-    queue: &mut Vec<hir::SourceClass>,
+    queue: &mut Vec<jvm_index::SourceClass>,
     visited: &mut FxHashSet<(FileId, ItemId)>,
 ) {
     match resolved {
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             if source.file == file {
                 return;
             }
@@ -245,12 +245,12 @@ fn record_class(
         }
         // A facade is the file its top-level declarations live in; it declares
         // no class of its own, so it has no supertype chain to close over.
-        hir::Resolved::Facade { file: facade, .. } => {
+        jvm_index::Resolved::Facade { file: facade, .. } => {
             if *facade != file {
                 out.insert(*facade);
             }
         }
-        hir::Resolved::Library(_) => {}
+        jvm_index::Resolved::Library(_) => {}
     }
 }
 
@@ -266,7 +266,7 @@ fn record_member(
     member: &KotlinResolvedMember,
     file: FileId,
     out: &mut FxHashSet<FileId>,
-    queue: &mut Vec<hir::SourceClass>,
+    queue: &mut Vec<jvm_index::SourceClass>,
     visited: &mut FxHashSet<(FileId, ItemId)>,
 ) {
     match member {
@@ -279,7 +279,7 @@ fn record_member(
             // a function or property target contributes its file alone (the
             // receiver it was resolved on is walked through its own type).
             if is_source_class(db, *target, *item) && visited.insert((*target, *item)) {
-                queue.push(hir::SourceClass {
+                queue.push(jvm_index::SourceClass {
                     file: *target,
                     item: *item,
                 });
@@ -308,7 +308,7 @@ fn record_member(
 /// Whether `item` of `file` is a classifier declaration of a *Kotlin* file —
 /// the only kind of source declaration with a declared supertype list.
 fn is_source_class(db: &dyn TyDatabase, file: FileId, item: ItemId) -> bool {
-    let items = hir::file_item_tree(db, file);
+    let items = jvm_index::file_item_tree(db, file);
     hir_def::kotlin::plugin::model(&items)
         .is_some_and(|tree| matches!(tree.data(item), KotlinItemData::Class(_)))
 }
@@ -318,8 +318,8 @@ fn is_source_class(db: &dyn TyDatabase, file: FileId, item: ItemId) -> bool {
 /// `declarations.html#supertype-specifiers`](https://kotlinlang.org/spec/declarations.html#supertype-specifiers)),
 /// the Java layer's for a Java source class a Kotlin file can inherit from —
 /// whose own supertypes stay in that layer.
-fn source_supertypes(db: &dyn TyDatabase, source: hir::SourceClass) -> Vec<Ty> {
-    let items = hir::file_item_tree(db, source.file);
+fn source_supertypes(db: &dyn TyDatabase, source: jvm_index::SourceClass) -> Vec<Ty> {
+    let items = jvm_index::file_item_tree(db, source.file);
     if hir_def::kotlin::plugin::model(&items).is_some() {
         return db::supertypes(db, source.file, source.item).to_vec();
     }
@@ -424,7 +424,7 @@ pub(crate) fn file_dependency_refs_impl(db: &dyn TyDatabase, file: FileId) -> Fx
         }
     }
 
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     for (_, local) in bodies.locals.iter() {
         if let Some(ty) = &local.ty {
             collect_type_names(ty, &mut out);

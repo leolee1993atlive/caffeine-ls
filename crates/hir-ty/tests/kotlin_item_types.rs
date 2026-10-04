@@ -6,8 +6,8 @@
 //! test controls, which is exactly the claim these tests make.
 
 use base_db::{FileChange, FileSourceRootInput, SourceDatabase, SourceRoot, SourceRootId};
-use hir::SourceSetId;
 use hir_ty::{Ty, TyKind};
+use jvm_index::SourceSetId;
 use tempfile::TempDir;
 use triomphe::Arc;
 use vfs::{AbsPathBuf, FileId, VfsPath, file_set::FileSet};
@@ -50,33 +50,33 @@ fn kotlin_fixture_with(
     change.apply(&mut db);
 
     let source_set = SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         jdk.lib,
-        hir::LibraryInfo::new(
-            hir::LibraryKind::Jar,
+        jvm_index::LibraryInfo::new(
+            jvm_index::LibraryKind::Jar,
             AbsPathBuf::assert_utf8(jdk.jar.as_std_path().to_owned()),
         ),
     );
     data.libraries.insert(
         stdlib_id,
-        hir::LibraryInfo::new(hir::LibraryKind::Jar, stdlib_path),
+        jvm_index::LibraryInfo::new(jvm_index::LibraryKind::Jar, stdlib_path),
     );
     data.libraries.insert(
         extra_id,
-        hir::LibraryInfo::new(hir::LibraryKind::Jar, extra_path),
+        jvm_index::LibraryInfo::new(jvm_index::LibraryKind::Jar, extra_path),
     );
     data.jdk_libraries.push(jdk.lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath {
+        Arc::new(jvm_index::Classpath {
             entries: vec![
-                hir::ClasspathEntry::Library(jdk.lib),
-                hir::ClasspathEntry::Library(stdlib_id),
-                hir::ClasspathEntry::Library(extra_id),
+                jvm_index::ClasspathEntry::Library(jdk.lib),
+                jvm_index::ClasspathEntry::Library(stdlib_id),
+                jvm_index::ClasspathEntry::Library(extra_id),
             ],
         }),
     );
@@ -86,7 +86,7 @@ fn kotlin_fixture_with(
         SourceRootId(0),
         AbsPathBuf::assert_utf8(dir.path().to_string_lossy().to_string().into()),
     );
-    hir::set_project_graph(&mut db, data);
+    jvm_index::set_project_graph(&mut db, data);
     // The database outlives the fixtures; their jars are read lazily.
     std::mem::forget(dir);
     jdk.keep_alive();
@@ -95,7 +95,7 @@ fn kotlin_fixture_with(
 
 /// The rendered names and types of the file's declaration items.
 fn render_types(db: &TestDatabase, file: FileId) -> String {
-    let tree = hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
     let mut lines = Vec::new();
     for (id, data) in tree.items.iter() {
         if data.name().is_none()
@@ -190,7 +190,7 @@ class Box<T : Any> {
 /// The declared type of the fixture's declaration named `name` — for an object
 /// literal's class, `<anonymous>`.
 fn ty_of(db: &TestDatabase, file: FileId, name: &str) -> Ty {
-    let tree = hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
     for (id, data) in tree.items.iter() {
         if data.name().map(|n| n.as_str()) == Some(name) {
             // The declared type, nullability included — the caller strips it
@@ -315,9 +315,9 @@ fun misuse(w: Words): String { return w.words }
 }
 
 /// The resolution scope of the fixture's file, for a subtyping question.
-fn scope(db: &TestDatabase, file: FileId) -> hir::ResolutionScope {
-    hir::ResolutionScope::SourceSet(
-        hir::source_set_for_file(db, file).expect("a mapped source set"),
+fn scope(db: &TestDatabase, file: FileId) -> jvm_index::ResolutionScope {
+    jvm_index::ResolutionScope::SourceSet(
+        jvm_index::source_set_for_file(db, file).expect("a mapped source set"),
     )
 }
 
@@ -420,7 +420,7 @@ println(local)
 /// source range, its type, and the declaration the inference resolved it to —
 /// the evidence that the body is inferred *and* that its names resolve.
 fn render_script_body(db: &TestDatabase, file: FileId) -> String {
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let types = hir_ty::kotlin_script_body_types(db, file);
     let mut lines: Vec<String> = types
         .exprs
@@ -438,8 +438,8 @@ fn render_script_body(db: &TestDatabase, file: FileId) -> String {
                         format!("local {}", bodies.local(*local).name)
                     }
                     hir_ty::KotlinResolvedMember::Kotlin { item, .. } => {
-                        let tree =
-                            hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+                        let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file)
+                            .expect("a Kotlin file");
                         format!(
                             "item {}",
                             tree.data(*item)
@@ -472,7 +472,7 @@ fn render_script_body(db: &TestDatabase, file: FileId) -> String {
 /// The inferred types and diagnostics of a fixture's bodies, rendered one
 /// line per inferred expression in arena order plus one per error.
 fn render_bodies(db: &TestDatabase, file: FileId) -> String {
-    let tree = hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
     let mut lines = Vec::new();
     let mut render = |types: &hir_ty::KotlinBodyTypes, lines: &mut Vec<String>| {
         for (expr, ty) in types.exprs.iter() {
@@ -930,8 +930,8 @@ fun use(list: java.util.ArrayList<String>): Int {
         // a `kotlin.collections.List`, which is what the covariance of the
         // standard library treats as one type
         // (<https://kotlinlang.org/docs/java-interop.html#mapped-types>).
-        let scope = hir::ResolutionScope::SourceSet(
-            hir::source_set_for_file(&db, file).expect("a mapped source set"),
+        let scope = jvm_index::ResolutionScope::SourceSet(
+            jvm_index::source_set_for_file(&db, file).expect("a mapped source set"),
         );
         let java = Ty::reference(&db, "java.util.ArrayList", Vec::new());
         let kotlin = Ty::reference(&db, "kotlin.collections.List", Vec::new());
@@ -1165,9 +1165,9 @@ mod interop_types {
     use super::*;
     use hir_ty::kotlin::ty::ty_from_java;
 
-    fn scope(db: &TestDatabase, file: FileId) -> hir::ResolutionScope {
-        hir::ResolutionScope::SourceSet(
-            hir::source_set_for_file(db, file).expect("a mapped source set"),
+    fn scope(db: &TestDatabase, file: FileId) -> jvm_index::ResolutionScope {
+        jvm_index::ResolutionScope::SourceSet(
+            jvm_index::source_set_for_file(db, file).expect("a mapped source set"),
         )
     }
 
@@ -1452,7 +1452,7 @@ val look: Map<String, Int>.(String) -> Int = { 0 }
         )]);
         let util = item_named(&db, file, "Util");
         assert_eq!(
-            hir::source_class_fqn(&db, file, util).map(|name| name.to_string()),
+            jvm_index::source_class_fqn(&db, file, util).map(|name| name.to_string()),
             Some("a.Util".to_owned())
         );
         let ty = Ty::reference(&db, "a.Util", Vec::new());
@@ -1474,7 +1474,7 @@ val look: Map<String, Int>.(String) -> Int = { 0 }
 
     /// The item id of the declaration named `name` in the fixture's file.
     fn item_named(db: &TestDatabase, file: FileId, name: &str) -> hir_expand::ids::ItemId {
-        let tree = hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+        let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
         for (id, data) in tree.items.iter() {
             if data.name().map(|n| n.as_str()) == Some(name) {
                 return hir_expand::ids::ItemId(id);
@@ -2474,7 +2474,7 @@ class Holder {
 }
 "#;
     let (db, file) = kotlin_fixture(&[("/src/main/kotlin/Sample.kt", source)]);
-    let tree = hir::hir_def::kotlin::plugin::tree(&db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(&db, file).expect("a Kotlin file");
     let rendered = render_types(&db, file);
     assert!(
         !rendered.contains("<error>"),
@@ -3274,7 +3274,7 @@ fun use() { val good: String = Overloads.pick("x"); val bad: Int = Overloads.pic
                 .unwrap()
                 .0;
             let body = hir_ty::kotlin_body_types(&db, file, hir_expand::ids::ItemId(item));
-            let bodies = hir::file_body_tree(&db, file);
+            let bodies = jvm_index::file_body_tree(&db, file);
             assert_eq!(body.diagnostics.len(), 1, "{:?}", body.diagnostics);
             assert!(
                 matches!(&body.diagnostics[0], hir_ty::KotlinTypeError::TypeMismatch { range: Some(range), .. } if usize::from(range.start()) == kotlin.rfind("Overloads.pick").unwrap())
@@ -3650,7 +3650,7 @@ fn java_synthetic_properties_require_valid_accessors() {
         };
         let (db, file) = kotlin_fixture_with(&files, extra);
         let tree = hir_def::kotlin::plugin::tree(&db, file).unwrap();
-        let bodies = hir::file_body_tree(&db, file);
+        let bodies = jvm_index::file_body_tree(&db, file);
         let string = Ty::reference(&db, "kotlin.String", vec![]);
         let platform_string = Ty::flexible(&db, string, Ty::nullable(&db, string));
         for (index, case) in cases.iter().enumerate() {

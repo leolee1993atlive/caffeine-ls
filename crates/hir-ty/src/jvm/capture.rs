@@ -19,7 +19,7 @@ use crate::ty::{BoundKind, Ty, TyKind, TypeVarScope};
 /// the receiver before the member set walk of
 /// [`crate::jvm::member_set::member_set`], and only there: the capture variables never
 /// reach the memoized subtype queries.
-pub fn capture_conversion(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: Ty) -> Ty {
+pub fn capture_conversion(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, ty: Ty) -> Ty {
     let fresh = |bound: Ty| Ty::fresh_capture(db, bound);
     match ty.kind(db) {
         TyKind::Reference { name, args, .. } => {
@@ -106,7 +106,7 @@ pub fn capture_conversion(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty:
 /// (whose bounds need the source item tree) fall back to `Object`.
 fn type_param_upper_bounds(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
     args: &[Ty],
     placeholders: &[Option<Ty>],
@@ -116,7 +116,7 @@ fn type_param_upper_bounds(
     // [§6.3]) and a same-named variable of another declaration inside a bound
     // ([§6.4.1]) is left alone.
     let params = crate::jvm::resolve::declared_type_param_scopes(db, scope, &Name::new(fqn));
-    if params.is_empty() && hir::fqn_resolve(db, scope, fqn).is_some() {
+    if params.is_empty() && jvm_index::fqn_resolve(db, scope, fqn).is_some() {
         // A class with no recoverable type parameters (unresolvable name or a
         // source declaration whose tree the helper cannot see) has none.
         return Vec::new();

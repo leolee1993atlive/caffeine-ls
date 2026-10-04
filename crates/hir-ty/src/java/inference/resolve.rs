@@ -14,7 +14,7 @@ impl Inference {
     pub(super) fn resolve(
         &self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
     ) -> Option<FxHashMap<u64, Ty>> {
         // The equalities incorporated eagerly are no longer in the bound set;
         // seed the substitution with them so the caller's instantiation sees

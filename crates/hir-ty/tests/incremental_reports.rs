@@ -6,8 +6,8 @@
 //! index (`source_set_symbol_index_query`), which salsa re-derived on *any*
 //! symbol edit — so a single edit re-inferred the whole workspace. Now the
 //! resolver probes only the FQN's prefix-package file buckets
-//! ([`hir::source_set_package_files`]) and each candidate's per-file symbols
-//! ([`hir::file_symbols`]), both tracked per file/package, so an edit in an
+//! ([`jvm_index::source_set_package_files`]) and each candidate's per-file symbols
+//! ([`jvm_index::file_symbols`]), both tracked per file/package, so an edit in an
 //! unrelated package leaves an untouched file's `body_types` result served
 //! from the salsa memo.
 //!
@@ -132,7 +132,7 @@ class A extends B {
     let a = FileId::from_raw(1);
 
     // Warm `file_symbols` (keyed on the item tree).
-    let sym = hir::file_symbols(&db, a);
+    let sym = jvm_index::file_symbols(&db, a);
 
     // A *structural* edit inside the method body (a new typed local): new
     // CST nodes, but all of them under the pruned `BLOCK`, so the declaration
@@ -150,7 +150,7 @@ class A extends B {
 }
 ";
     edit_file(&mut db, a, body_edit);
-    let sym_after_body = hir::file_symbols(&db, a);
+    let sym_after_body = jvm_index::file_symbols(&db, a);
     assert!(
         Arc::ptr_eq(&sym, &sym_after_body),
         "a body-only edit must not re-execute file_symbols"
@@ -170,7 +170,7 @@ class A extends B {
 }
 ";
     edit_file(&mut db, a, rename);
-    let sym_after_rename = hir::file_symbols(&db, a);
+    let sym_after_rename = jvm_index::file_symbols(&db, a);
     assert!(
         !Arc::ptr_eq(&sym, &sym_after_rename),
         "renaming a method must re-execute file_symbols"
@@ -192,7 +192,7 @@ class A extends B {
 }
 ";
     edit_file(&mut db, a, field_ty);
-    let sym_after_field_ty = hir::file_symbols(&db, a);
+    let sym_after_field_ty = jvm_index::file_symbols(&db, a);
     assert!(
         !Arc::ptr_eq(&sym, &sym_after_field_ty),
         "changing a field's type must re-execute file_symbols"
@@ -221,7 +221,7 @@ class A extends B {
 }
 ";
     edit_file(&mut db, a, local_class);
-    let sym_after_local_class = hir::file_symbols(&db, a);
+    let sym_after_local_class = jvm_index::file_symbols(&db, a);
     assert!(
         !Arc::ptr_eq(&sym, &sym_after_local_class),
         "declaring a local class must re-execute file_symbols"
@@ -232,7 +232,7 @@ class A extends B {
     // hit.
     let local_class_body_edit = local_class.replace("int k = 1;", "int k = 2;");
     edit_file(&mut db, a, &local_class_body_edit);
-    let sym_after_local_body = hir::file_symbols(&db, a);
+    let sym_after_local_body = jvm_index::file_symbols(&db, a);
     assert!(
         Arc::ptr_eq(&sym_after_local_class, &sym_after_local_body),
         "a body-only edit of a local class must not re-execute file_symbols"
@@ -260,20 +260,20 @@ class A {
     register_source_set(&mut db, &fixture, &[("/src/com/a/A.kt", source)]);
     let a = FileId::from_raw(1);
 
-    let tree = hir::file_item_tree(&db, a);
-    let symbols = hir::file_symbols(&db, a);
+    let tree = jvm_index::file_item_tree(&db, a);
+    let symbols = jvm_index::file_symbols(&db, a);
 
     // Control: a declaration-skeleton edit — renaming the function — changes
     // the tree (and re-executes the symbols).
     let rename = source.replace("fun m(", "fun m2(");
     edit_file(&mut db, a, &rename);
     assert_ne!(
-        *hir::file_item_tree(&db, a),
+        *jvm_index::file_item_tree(&db, a),
         *tree,
         "renaming a Kotlin function must change the item tree"
     );
     assert!(
-        !Arc::ptr_eq(&symbols, &hir::file_symbols(&db, a)),
+        !Arc::ptr_eq(&symbols, &jvm_index::file_symbols(&db, a)),
         "renaming a Kotlin function must re-execute file_symbols"
     );
 
@@ -284,16 +284,16 @@ class A {
         "val local = 1",
         "val local = 1\n        val extra: String = \"x\"",
     );
-    let tree_after_rename = hir::file_item_tree(&db, a);
-    let symbols_after_rename = hir::file_symbols(&db, a);
+    let tree_after_rename = jvm_index::file_item_tree(&db, a);
+    let symbols_after_rename = jvm_index::file_symbols(&db, a);
     edit_file(&mut db, a, &body_edit);
     assert_eq!(
-        *hir::file_item_tree(&db, a),
+        *jvm_index::file_item_tree(&db, a),
         *tree_after_rename,
         "a Kotlin body-only edit must leave the item tree equal"
     );
     assert!(
-        Arc::ptr_eq(&symbols_after_rename, &hir::file_symbols(&db, a)),
+        Arc::ptr_eq(&symbols_after_rename, &jvm_index::file_symbols(&db, a)),
         "a Kotlin body-only edit must not re-execute file_symbols"
     );
 
@@ -304,10 +304,10 @@ class A {
         "val extra: String = \"x\"",
         "val extra: String = \"x\"\n        class Local {\n            fun n(): Int = 1\n        }",
     );
-    let tree_before_local = hir::file_item_tree(&db, a);
+    let tree_before_local = jvm_index::file_item_tree(&db, a);
     edit_file(&mut db, a, &local_class);
     assert_ne!(
-        *hir::file_item_tree(&db, a),
+        *jvm_index::file_item_tree(&db, a),
         *tree_before_local,
         "declaring a Kotlin local class must change the item tree"
     );

@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 base-db.workspace = true
-hir.workspace = true
+jvm-index.workspace = true
 hir-def.workspace = true
 hir-expand.workspace = true
 hir-ty.workspace = true

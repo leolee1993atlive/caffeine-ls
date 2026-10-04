@@ -674,7 +674,7 @@ fn pending_source_entry(file: &LibraryFileRef) -> &str {
 /// directory (a JDK `src.zip` is ~15k entries).
 #[test]
 fn warmup_indexes_the_library_sources() {
-    use hir::lmdb_store::{CACHE_FORMAT_VERSION, SourcesStamp, StubStore};
+    use jvm_index::lmdb_store::{CACHE_FORMAT_VERSION, SourcesStamp, StubStore};
 
     // No library source is materialized: the state of a session that has not
     // opened a declaring file — the one the layout is indexed for.

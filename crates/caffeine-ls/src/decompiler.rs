@@ -253,7 +253,7 @@ pub(crate) fn read_class_bytes(
 
 /// The classfile bytes of `class_path` out of a JDK jimage. The resource name
 /// is `<module>/<path>`, and the lookup key is the same name with a leading
-/// slash — the shape `hir::loader::parse_jimage` reads stubs with.
+/// slash — the shape `jvm_index::loader::parse_jimage` reads stubs with.
 fn read_jimage_class(archive: &Path, class_path: &str) -> anyhow::Result<Vec<u8>> {
     let archive_path = Utf8Path::from_path(archive)
         .ok_or_else(|| anyhow::anyhow!("archive path is not UTF-8: {}", archive.display()))?;

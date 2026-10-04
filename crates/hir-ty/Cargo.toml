@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 base-db.workspace = true
 classfile.workspace = true
-hir.workspace = true
+jvm-index.workspace = true
 hir-def.workspace = true
 hir-expand.workspace = true
 rowan.workspace = true

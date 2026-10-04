@@ -16,7 +16,7 @@ use crate::lint::{LintKey, SuppressionScope};
 /// A warning at `range` is suppressed when some returned scope both contains
 /// `range` and carries its key; [`is_suppressed`] performs that check.
 pub(crate) fn suppression_scopes(db: &dyn TyDatabase, file_id: FileId) -> Vec<SuppressionScope> {
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let Some((_map, source)) = hir_ty::range_ctx::range_ctx(db, file_id, tree.language) else {
         return Vec::new();
     };

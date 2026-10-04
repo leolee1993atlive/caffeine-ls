@@ -15,8 +15,8 @@
 //!
 //! A [`Resolver`] captures the per-file name context of one item: the
 //! compilation unit's package and imports, plus the type parameters in scope
-//! at that item. Resolution itself runs against a [`hir::ResolutionScope`]:
-//! the candidates are probed with [`hir::fqn_resolve`] against that scope's
+//! at that item. Resolution itself runs against a [`jvm_index::ResolutionScope`]:
+//! the candidates are probed with [`jvm_index::fqn_resolve`] against that scope's
 //! classpath, and the first one that exists wins.
 
 mod member_type;
@@ -78,7 +78,7 @@ impl std::ops::Deref for ScopedTypeParam {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopedLocalType {
     pub name: Name,
-    pub class: hir::SourceClass,
+    pub class: jvm_index::SourceClass,
 }
 
 /// The local declarations in scope at one item of a file
@@ -253,7 +253,7 @@ impl Resolver {
             let name = class_like_name(tree.data(*item))?;
             Some(ScopedLocalType {
                 name: name.clone(),
-                class: hir::SourceClass { file, item: *item },
+                class: jvm_index::SourceClass { file, item: *item },
             })
         }));
     }
@@ -333,7 +333,7 @@ pub(crate) fn enclosing_type_chain(tree: &ItemTree, item_id: ItemId) -> Vec<Name
 /// — a *local* class-like declaration
 /// ([JLS §14.3](https://docs.oracle.com/javase/specs/jls/se26/html/jls-14.html#jls-14.3)),
 /// or a member type of one, which §6.7 leaves unnamed too. Mirrors the name
-/// [`hir::source_class_fqn`] derives from the file's symbol set: a
+/// [`jvm_index::source_class_fqn`] derives from the file's symbol set: a
 /// declaration is named exactly when no local declaration encloses it.
 pub(crate) fn canonical_class_fqn(tree: &ItemTree, item: ItemId) -> Option<Name> {
     let mut names = Vec::new();
@@ -543,7 +543,7 @@ pub(crate) fn local_decl_sites(
             let name = class_like_name(self.tree.data(id))?;
             Some(ScopedLocalType {
                 name: name.clone(),
-                class: hir::SourceClass {
+                class: jvm_index::SourceClass {
                     file: self.file,
                     item: id,
                 },
@@ -722,7 +722,7 @@ pub(crate) fn local_reference(
     db: &dyn TyDatabase,
     resolver: &Resolver,
     name: &Name,
-) -> Option<(hir::SourceClass, Name)> {
+) -> Option<(jvm_index::SourceClass, Name)> {
     let text = name.as_str();
     match text.split_once('.') {
         Some((prefix, rest)) => {
@@ -745,13 +745,13 @@ fn simple_segment(text: &str) -> &str {
 /// The member type of the *local* declaration `class` named by the rest of a
 /// written reference, resolved segment by segment through the item tree: a
 /// member type of a declaration without a canonical name has none either
-/// ([JLS §6.7]), so it cannot be probed through [`hir::fqn_resolve`] and is
+/// ([JLS §6.7]), so it cannot be probed through [`jvm_index::fqn_resolve`] and is
 /// identified by its declaration like its owner.
 fn local_member_type(
     db: &dyn TyDatabase,
-    class: hir::SourceClass,
+    class: jvm_index::SourceClass,
     rest: &str,
-) -> Option<hir::SourceClass> {
+) -> Option<jvm_index::SourceClass> {
     let tree = hir_def::java::plugin::tree(db, class.file);
     let mut current = class.item;
     for segment in rest.split('.') {
@@ -759,7 +759,7 @@ fn local_member_type(
             class_like_name(tree.data(*member)).is_some_and(|name| name.as_str() == segment)
         })?;
     }
-    Some(hir::SourceClass {
+    Some(jvm_index::SourceClass {
         file: class.file,
         item: current,
     })
@@ -772,7 +772,7 @@ fn local_member_type(
 /// most qualified candidate so the [`Ty`] stays displayable.
 pub fn resolve_type_ref(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     tyref: &TypeRef<Name>,
 ) -> Ty {
@@ -793,7 +793,7 @@ pub fn resolve_type_ref(
 /// not a bare reference, so the caller falls back to the lexical resolution.
 pub fn qualify_member_type_of(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver_ty: &Ty,
     tyref: &TypeRef<Name>,
 ) -> Option<TypeRef<Name>> {
@@ -806,7 +806,7 @@ pub fn qualify_member_type_of(
     // written argument here targets ([JLS §8.1.3], §15.9.3).
     let (receiver_name, _) = receiver_ty.erasure(db).as_reference(db)?;
     let member_fqn = join(receiver_name, name.as_str());
-    hir::fqn_resolve(db, scope, member_fqn.as_str())?;
+    jvm_index::fqn_resolve(db, scope, member_fqn.as_str())?;
     Some(TypeRef::Reference {
         name: member_fqn,
         generic_args: generic_args.clone(),
@@ -821,7 +821,7 @@ pub fn qualify_member_type_of(
 #[stacksafe]
 fn resolve_type_ref_impl(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     tyref: &TypeRef<Name>,
     resolving: &mut Vec<Name>,
@@ -913,7 +913,7 @@ fn resolve_type_ref_impl(
 /// remains usable for display and later resolution.
 fn resolve_reference_name(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
 ) -> Name {
@@ -968,7 +968,7 @@ fn resolve_reference_name(
     // Java caller writes it
     // (<https://kotlinlang.org/docs/java-interop.html#package-level-functions>).
     for candidate in candidate_fqns(resolver, name) {
-        if hir::file_facade_source(db, scope, candidate.as_str()).is_some() {
+        if jvm_index::file_facade_source(db, scope, candidate.as_str()).is_some() {
             return candidate;
         }
     }
@@ -997,18 +997,18 @@ fn resolve_reference_name(
 /// keep their dotted spelling.
 fn canonical_type_name(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     candidate: &Name,
 ) -> Option<Name> {
-    match hir::fqn_resolve(db, scope, candidate.as_str())? {
-        hir::Resolved::Library(class) => {
+    match jvm_index::fqn_resolve(db, scope, candidate.as_str())? {
+        jvm_index::Resolved::Library(class) => {
             let interner = &db.hir_state().interner;
             Some(Name::new(interner.resolve(&class.entry.fqn)))
         }
         // A source class keeps its dotted spelling, a facade the name the
         // compiler gives it.
-        hir::Resolved::Source(_) => Some(candidate.clone()),
-        hir::Resolved::Facade { fqn, .. } => Some(fqn),
+        jvm_index::Resolved::Source(_) => Some(candidate.clone()),
+        jvm_index::Resolved::Facade { fqn, .. } => Some(fqn),
     }
 }
 
@@ -1019,7 +1019,7 @@ fn canonical_type_name(
 /// name — or, for a qualified name, with its remainder after the prefix.
 fn inherited_member_candidates(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     text: &str,
 ) -> Vec<Name> {
@@ -1185,7 +1185,7 @@ fn simple_candidates_with_kind(resolver: &Resolver, simple: &str) -> Vec<(Candid
 /// to the only accessible one instead of reporting an ambiguity.
 fn on_demand_candidate_accessible(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     fqn: &Name,
 ) -> bool {
@@ -1202,11 +1202,11 @@ fn on_demand_candidate_accessible(
     if same_package {
         return true;
     }
-    match hir::fqn_resolve(db, scope, fqn.as_str()) {
+    match jvm_index::fqn_resolve(db, scope, fqn.as_str()) {
         // A Kotlin file's facade is a public source class.
-        Some(hir::Resolved::Facade { .. }) => true,
-        Some(hir::Resolved::Library(class)) => class.entry.flags & 0x0001 != 0,
-        Some(hir::Resolved::Source(source)) => {
+        Some(jvm_index::Resolved::Facade { .. }) => true,
+        Some(jvm_index::Resolved::Library(class)) => class.entry.flags & 0x0001 != 0,
+        Some(jvm_index::Resolved::Source(source)) => {
             let tree = hir_def::java::plugin::tree(db, source.file);
             let Some(data) = crate::java::resolve::item_data(&tree, source.item) else {
                 return false;
@@ -1241,7 +1241,7 @@ pub enum NameResolution {
     /// The name denotes a *local* class-like declaration ([JLS §14.3]) or a
     /// member type of one: a declaration with no canonical name ([§6.7]),
     /// identified by its declaration instead.
-    ResolvedLocal(hir::SourceClass),
+    ResolvedLocal(jvm_index::SourceClass),
     /// The simple name is accessible through two or more on-demand imports
     /// that denote different types — a compile-time error ([§6.5.5.1],
     /// [§7.5.2]).
@@ -1261,7 +1261,7 @@ pub enum NameResolution {
 
 /// Whether `fqn`'s package is visible from `module_ctx` ([§7.4.3], [§7.7.2]).
 /// Types in the unnamed package are never module-hidden.
-fn fqn_visible(db: &dyn TyDatabase, module_ctx: &hir::ModuleCtx, fqn: &str) -> bool {
+fn fqn_visible(db: &dyn TyDatabase, module_ctx: &jvm_index::ModuleCtx, fqn: &str) -> bool {
     match fqn.rsplit_once('.') {
         Some((package, _)) => module_ctx.package_visible(&db.hir_state().interner, package),
         None => true,
@@ -1444,7 +1444,7 @@ pub(crate) fn innermost_item(
 /// same-package class.
 pub fn resolve_name_checked(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
 ) -> NameResolution {
@@ -1466,7 +1466,7 @@ pub fn resolve_name_checked(
     // visibility ([§7.4.3], [§7.7.2]); a candidate whose package is not
     // visible is not a resolution, but a class that *exists* invisibly is
     // worth distinguishing from "nothing on the classpath" for diagnostics.
-    let module_ctx = hir::module_ctx_for_scope(db, scope);
+    let module_ctx = jvm_index::module_ctx_for_scope(db, scope);
 
     // §6.5.5.2: a qualified name — tried as-is first, then with each
     // simple-name resolution of its prefix. (On-demand ambiguity only applies
@@ -1478,7 +1478,7 @@ pub fn resolve_name_checked(
         }
         let mut hidden: Option<Name> = None;
         for candidate in &candidates {
-            if hir::fqn_resolve(db, scope, candidate.as_str()).is_none() {
+            if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_none() {
                 continue;
             }
             if fqn_visible(db, &module_ctx, candidate.as_str()) {
@@ -1502,7 +1502,7 @@ pub fn resolve_name_checked(
         // enclosing declaration.
         for prefix_fqn in inherited_member_candidates(db, scope, resolver, prefix) {
             let candidate = join(&prefix_fqn, rest);
-            if hir::fqn_resolve(db, scope, candidate.as_str()).is_some() {
+            if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some() {
                 if fqn_visible(db, &module_ctx, candidate.as_str()) {
                     return NameResolution::Resolved(candidate);
                 }
@@ -1521,7 +1521,7 @@ pub fn resolve_name_checked(
         // §6.5.5.1: a member type of an enclosing declaration shadows
         // everything below; the innermost enclosing class wins.
         if *step == CandidateStep::EnclosingMember {
-            if hir::fqn_resolve(db, scope, candidate.as_str()).is_some() {
+            if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some() {
                 return NameResolution::Resolved(candidate.clone());
             }
             continue;
@@ -1544,7 +1544,7 @@ pub fn resolve_name_checked(
             ) {
                 continue;
             }
-            if hir::fqn_resolve(db, scope, candidate.as_str()).is_some() {
+            if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some() {
                 return NameResolution::Resolved(candidate.clone());
             }
             continue;
@@ -1553,7 +1553,7 @@ pub fn resolve_name_checked(
         // a class that cannot be found the import is an error and the name
         // does not fall through to a later step.
         if *step == CandidateStep::SingleImport {
-            if hir::fqn_resolve(db, scope, candidate.as_str()).is_none() {
+            if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_none() {
                 return NameResolution::Unresolved;
             }
             return if fqn_visible(db, &module_ctx, candidate.as_str()) {
@@ -1562,7 +1562,7 @@ pub fn resolve_name_checked(
                 NameResolution::NotAccessible(candidate.clone())
             };
         }
-        if hir::fqn_resolve(db, scope, candidate.as_str()).is_some() {
+        if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some() {
             if !fqn_visible(db, &module_ctx, candidate.as_str()) {
                 hidden.get_or_insert_with(|| candidate.clone());
                 continue;
@@ -1581,7 +1581,7 @@ pub fn resolve_name_checked(
                 let mut conflicting = Vec::new();
                 for (later_step, later) in &candidates[idx + 1..] {
                     if *later_step == CandidateStep::OnDemand
-                        && hir::fqn_resolve(db, scope, later.as_str()).is_some()
+                        && jvm_index::fqn_resolve(db, scope, later.as_str()).is_some()
                         && fqn_visible(db, &module_ctx, later.as_str())
                         && on_demand_candidate_accessible(db, scope, resolver, later)
                         && later != candidate
@@ -1600,7 +1600,7 @@ pub fn resolve_name_checked(
     // §6.5.5.1: a member type *inherited* by an enclosing declaration is in
     // scope by simple name too — tried after every declared candidate.
     for candidate in inherited_member_candidates(db, scope, resolver, text) {
-        if hir::fqn_resolve(db, scope, candidate.as_str()).is_some() {
+        if jvm_index::fqn_resolve(db, scope, candidate.as_str()).is_some() {
             if fqn_visible(db, &module_ctx, candidate.as_str()) {
                 return NameResolution::Resolved(candidate);
             }
@@ -1611,7 +1611,7 @@ pub fn resolve_name_checked(
     // its name is a class name all the same, and a Java caller writes it
     // (<https://kotlinlang.org/docs/java-interop.html#package-level-functions>).
     for candidate in candidate_fqns(resolver, name) {
-        if hir::file_facade_source(db, scope, candidate.as_str()).is_some() {
+        if jvm_index::file_facade_source(db, scope, candidate.as_str()).is_some() {
             return NameResolution::Resolved(candidate);
         }
     }
@@ -1662,15 +1662,18 @@ pub fn source_class_binding(
 /// ([`canonical_class_fqn`] indexes the arena unchecked).
 ///
 /// A Kotlin declaration is named through the *source symbol index*
-/// ([`hir::source_class_fqn`]), which is the one naming the file's Kotlin
+/// ([`jvm_index::source_class_fqn`]), which is the one naming the file's Kotlin
 /// items; a `object` is class-like there and is named exactly as a `class` is.
 /// The two agree for a Java file — both name a declaration exactly when no
 /// local declaration encloses it — so the Java path keeps its own walk.
-pub(crate) fn source_class_fqn_of(db: &dyn TyDatabase, source: hir::SourceClass) -> Option<Name> {
-    let tree = hir::file_item_tree(db, source.file);
+pub(crate) fn source_class_fqn_of(
+    db: &dyn TyDatabase,
+    source: jvm_index::SourceClass,
+) -> Option<Name> {
+    let tree = jvm_index::file_item_tree(db, source.file);
     match hir_def::java::plugin::model(&tree) {
         Some(tree) => canonical_class_fqn(tree, source.item),
-        None => hir::source_class_fqn(db, source.file, source.item),
+        None => jvm_index::source_class_fqn(db, source.file, source.item),
     }
 }
 
@@ -1686,18 +1689,18 @@ pub(crate) fn source_class_fqn_of(db: &dyn TyDatabase, source: hir::SourceClass)
 /// {n}`, or `type {C} does not take parameters` for the zero case).
 pub fn type_argument_arity(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Option<usize> {
-    let resolved = hir::fqn_resolve(db, scope, fqn.as_str())?;
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn.as_str())?;
     match &resolved {
         // A Kotlin file's facade declares none.
-        hir::Resolved::Facade { .. } => Some(0),
-        hir::Resolved::Library(_) => hir::class_generic_info(db, &resolved)
+        jvm_index::Resolved::Facade { .. } => Some(0),
+        jvm_index::Resolved::Library(_) => jvm_index::class_generic_info(db, &resolved)
             .map(|info| info.type_params.len())
             // A classfile without a `Signature` attribute declares none.
             .or(Some(0)),
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             // A class of another language has no Java declaration ([`java_item`]).
             let (tree, item) = java_item(db, *source)?;
             match tree.data(item) {
@@ -1730,7 +1733,7 @@ pub fn type_argument_arity(
 /// which is a type reference in its own right.
 pub fn type_argument_arity_mismatch(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     tyref: &TypeRef<Name>,
 ) -> Option<(Ty, usize)> {
@@ -1746,7 +1749,7 @@ pub fn type_argument_arity_mismatch(
             // (`java.util.List`, where the arguments are `List`'s own).
             if let Some((prefix, _)) = name.as_str().rsplit_once('.') {
                 let qualifier = resolve_reference_name(db, scope, resolver, &Name::new(prefix));
-                if hir::fqn_resolve(db, scope, qualifier.as_str()).is_some() {
+                if jvm_index::fqn_resolve(db, scope, qualifier.as_str()).is_some() {
                     return None;
                 }
             }
@@ -1783,19 +1786,19 @@ pub fn type_argument_arity_mismatch(
 /// The resolution scope of a source file: its source set, its own library when
 /// it is a loaded library source file, or the JDK built-ins when the file is
 /// not mapped to any root.
-pub fn scope_for_file(db: &dyn TyDatabase, file_id: FileId) -> hir::ResolutionScope {
-    if let Some(source_set) = hir::source_set_for_file(db, file_id) {
-        return hir::ResolutionScope::SourceSet(source_set);
+pub fn scope_for_file(db: &dyn TyDatabase, file_id: FileId) -> jvm_index::ResolutionScope {
+    if let Some(source_set) = jvm_index::source_set_for_file(db, file_id) {
+        return jvm_index::ResolutionScope::SourceSet(source_set);
     }
     // A loaded library source file resolves against its own library's classes,
     // then the platform built-ins. `Classpath` scope does not imply the latter,
     // hence the explicit extension.
-    if let Some(library) = hir::library_source_for_file(db, file_id) {
+    if let Some(library) = jvm_index::library_source_for_file(db, file_id) {
         let mut libraries = vec![library];
-        libraries.extend(hir::jdk_builtin_libraries(db));
-        return hir::ResolutionScope::Classpath(libraries);
+        libraries.extend(jvm_index::jdk_builtin_libraries(db));
+        return jvm_index::ResolutionScope::Classpath(libraries);
     }
-    hir::ResolutionScope::JdkBuiltins
+    jvm_index::ResolutionScope::JdkBuiltins
 }
 
 /// Whether `fqn` names a *generic class* — one declaring type parameters
@@ -1803,28 +1806,29 @@ pub fn scope_for_file(db: &dyn TyDatabase, file_id: FileId) -> hir::ResolutionSc
 /// A reference to it without type arguments is a raw type ([§4.8], [§4.12.2]).
 pub(crate) fn class_is_generic(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> bool {
-    let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, scope, fqn.as_str()) else {
         return false;
     };
     match resolved {
         // A Kotlin file's facade declares none.
-        hir::Resolved::Facade { .. } => false,
+        jvm_index::Resolved::Facade { .. } => false,
         // A library class is generic when its classfile `Signature` attribute
         // ([JVMS §4.7.9.1]) declares type parameters.
-        hir::Resolved::Library(_) => {
-            hir::class_generic_info(db, &resolved).is_some_and(|info| !info.type_params.is_empty())
-        }
+        jvm_index::Resolved::Library(_) => jvm_index::class_generic_info(db, &resolved)
+            .is_some_and(|info| !info.type_params.is_empty()),
         // A class of another language declares no *Java* type parameters: its
         // own live in the model its layer reads, and a Java reference to it is
         // not a raw type ([JLS §4.8] is a Java-source question).
-        hir::Resolved::Source(source) if !hir_def::java::plugin::declares_file(db, source.file) => {
+        jvm_index::Resolved::Source(source)
+            if !hir_def::java::plugin::declares_file(db, source.file) =>
+        {
             false
         }
         // A source class is generic when its declaration carries them.
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             let tree = hir_def::java::plugin::tree(db, source.file);
             let type_params = match tree.data(source.item) {
                 ItemData::Class(d) | ItemData::Interface(d) => Some(&d.type_params),
@@ -1851,7 +1855,7 @@ pub(crate) fn class_is_generic(
 /// used as `M<String>` checks `String <: Number` and reports the pair.
 pub fn type_argument_bound_violation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     class_fqn: &Name,
     args: &[Ty],
 ) -> Option<(Name, Ty, Ty)> {
@@ -1906,7 +1910,7 @@ pub fn type_argument_bound_violation(
 /// tree.
 pub fn declared_type_param_bounds(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Vec<(Name, Vec<Ty>)> {
     declared_type_param_scopes(db, scope, fqn)
@@ -1922,7 +1926,7 @@ pub fn declared_type_param_bounds(
 /// read their names.
 pub fn declared_type_param_scopes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Vec<(TypeVarScope, Vec<Ty>)> {
     crate::jvm::resolve::declared_type_param_scopes(db, scope, fqn)
@@ -1933,7 +1937,7 @@ pub fn declared_type_param_scopes(
 /// declaration that is not a class, interface or record, declares none here.
 pub(crate) fn java_source_type_param_bounds(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
 ) -> Vec<(TypeVarScope, Vec<Ty>)> {
     if !hir_def::java::plugin::declares_file(db, source.file) {
         return Vec::new();
@@ -2002,7 +2006,7 @@ pub(crate) fn item_data(tree: &ItemTree, item_id: ItemId) -> Option<&ItemData> {
 /// ([`hir_def::java::plugin::declares_file`]).
 pub(crate) fn java_item(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
 ) -> Option<(triomphe::Arc<ItemTree>, ItemId)> {
     hir_def::java::plugin::declares_file(db, source.file)
         .then(|| (hir_def::java::plugin::tree(db, source.file), source.item))

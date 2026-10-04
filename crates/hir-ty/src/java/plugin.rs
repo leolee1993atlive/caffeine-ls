@@ -45,7 +45,12 @@ impl LanguageTypes for Java {
         ty
     }
 
-    fn supertypes(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: Ty) -> Vec<Ty> {
+    fn supertypes(
+        &self,
+        db: &dyn TyDatabase,
+        scope: &jvm_index::ResolutionScope,
+        ty: Ty,
+    ) -> Vec<Ty> {
         subtyping::java_language_supertypes(db, scope, ty)
     }
 
@@ -75,8 +80,8 @@ impl LanguageTypes for Java {
         crate::java::deprecation::source_item(db, file, item)
     }
 
-    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> usize {
-        let hir::Resolved::Source(source) = class else {
+    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &jvm_index::Resolved) -> usize {
+        let jvm_index::Resolved::Source(source) = class else {
             return 0;
         };
         let tree = hir_def::java::plugin::tree(db, source.file);
@@ -90,8 +95,8 @@ impl LanguageTypes for Java {
         }
     }
 
-    fn source_type_vars(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Vec<Ty> {
-        let hir::Resolved::Source(class) = class else {
+    fn source_type_vars(&self, db: &dyn TyDatabase, class: &jvm_index::Resolved) -> Vec<Ty> {
+        let jvm_index::Resolved::Source(class) = class else {
             return Vec::new();
         };
         let tree = hir_def::java::plugin::tree(db, class.file);
@@ -131,9 +136,9 @@ impl LanguageTypes for Java {
     fn type_param_bounds(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
     ) -> Vec<(crate::ty::TypeVarScope, Vec<Ty>)> {
-        let hir::Resolved::Source(source) = class else {
+        let jvm_index::Resolved::Source(source) = class else {
             return Vec::new();
         };
         crate::java::resolve::java_source_type_param_bounds(db, *source)
@@ -144,11 +149,11 @@ impl JvmMemberSource for Java {
     fn methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<MethodData> {
-        let hir::Resolved::Source(source) = class else {
+        let jvm_index::Resolved::Source(source) = class else {
             return Vec::new();
         };
         source_class_methods(db, *source, args.to_vec(), name)
@@ -157,11 +162,11 @@ impl JvmMemberSource for Java {
     fn fields(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<FieldData> {
-        let hir::Resolved::Source(source) = class else {
+        let jvm_index::Resolved::Source(source) = class else {
             return Vec::new();
         };
         source_class_fields(db, *source, args.to_vec(), name)
@@ -170,7 +175,7 @@ impl JvmMemberSource for Java {
     fn abstract_methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
     ) -> Vec<MethodData> {
         // §9.4.1: the abstract members of a Java interface are the methods its
@@ -178,7 +183,7 @@ impl JvmMemberSource for Java {
         // `default` or `static` and are not part of the functional-interface
         // descriptor. A *class* declares no abstract member of its own here:
         // an abstract method it inherits is found by the caller's walk.
-        let hir::Resolved::Source(source) = class else {
+        let jvm_index::Resolved::Source(source) = class else {
             return Vec::new();
         };
         let tree = hir_def::java::plugin::tree(db, source.file);
@@ -203,14 +208,18 @@ impl JvmMemberSource for Java {
     /// The JVM kind of a Java class, from its classfile flags or its source
     /// modifiers ([JLS §8.1](https://docs.oracle.com/javase/specs/jls/se26/html/jls-8.html#jls-8.1),
     /// [§8.1.1.2], [§8.9], [§9.1]).
-    fn kind(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Option<(JvmClassKind, bool)> {
+    fn kind(
+        &self,
+        db: &dyn TyDatabase,
+        class: &jvm_index::Resolved,
+    ) -> Option<(JvmClassKind, bool)> {
         match class {
             // A file's facade is a final class ([`crate::kotlin`]'s top-level
             // declarations compile into one).
-            hir::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
+            jvm_index::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
             // A library class is answered by the classfile entry, not here.
-            hir::Resolved::Library(_) => None,
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Library(_) => None,
+            jvm_index::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(db, source.file);
                 match item_data(&tree, source.item)? {
                     ItemData::Class(d) => Some((JvmClassKind::Class, d.modifiers.is_final())),
@@ -247,7 +256,11 @@ impl JvmMemberSource for Java {
         )
     }
 
-    fn enclosing_named_classes(&self, db: &dyn TyDatabase, class: &hir::SourceClass) -> Vec<Name> {
+    fn enclosing_named_classes(
+        &self,
+        db: &dyn TyDatabase,
+        class: &jvm_index::SourceClass,
+    ) -> Vec<Name> {
         let tree = hir_def::java::plugin::tree(db, class.file);
         crate::java::resolve::enclosing_type_chain(&tree, class.item)
     }

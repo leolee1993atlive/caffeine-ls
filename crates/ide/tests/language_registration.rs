@@ -81,7 +81,7 @@ fn every_registry_covers_the_kinds_the_layers_rely_on() {
             "syntax: {kind:?}"
         );
         assert_eq!(
-            hir::hir_def::lang::lowering(kind).is_some(),
+            jvm_index::hir_def::lang::lowering(kind).is_some(),
             row.lowering,
             "hir-def lowering: {kind:?}"
         );
@@ -91,7 +91,7 @@ fn every_registry_covers_the_kinds_the_layers_rely_on() {
             "hir-ty types: {kind:?}"
         );
         assert_eq!(
-            hir::lang::file_index(kind).is_some(),
+            jvm_index::lang::file_index(kind).is_some(),
             row.index,
             "hir file index: {kind:?}"
         );
@@ -126,13 +126,13 @@ fn the_registries_answer_the_same_kind_they_are_keyed_by() {
                 "the LSP languageId of {kind:?} is its name"
             );
         }
-        if let Some(lowering) = hir::hir_def::lang::lowering(kind) {
+        if let Some(lowering) = jvm_index::hir_def::lang::lowering(kind) {
             assert!(lowering.kinds().contains(&kind), "lowering: {kind:?}");
         }
         if let Some(types) = hir_ty::lang::types(kind) {
             assert!(types.kinds().contains(&kind), "types: {kind:?}");
         }
-        if let Some(index) = hir::lang::file_index(kind) {
+        if let Some(index) = jvm_index::lang::file_index(kind) {
             assert!(index.kinds().contains(&kind), "file index: {kind:?}");
         }
         if let Some(ide) = ide::lang::ide(kind) {

@@ -16,7 +16,7 @@
 //!    JVM ones), which are what make `String`, `Int` and `List` resolve in a
 //!    file that imports nothing.
 //!
-//! Classpath lookup goes through [`hir::fqn_resolve`], so a candidate that is a
+//! Classpath lookup goes through [`jvm_index::fqn_resolve`], so a candidate that is a
 //! library class resolves to it in classpath order exactly as it does for Java
 //! — there is no second classpath walk here. The default-import list itself —
 //! and the candidate list every one of these scopes produces — is the file's
@@ -24,10 +24,10 @@
 //! the index layer ([`hir_def::kotlin::item_tree::DEFAULT_IMPORTS`] records how
 //! the list was pinned).
 
-use hir::hir_def::kotlin::item_tree::{
+use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{
     DEFAULT_IMPORTS, KotlinClassKind, KotlinItemData, KotlinItemTree, KotlinTypeParam,
 };
-use hir_expand::name::Name;
 use vfs::FileId;
 
 use crate::jvm::db::TyDatabase;
@@ -59,7 +59,7 @@ pub struct KotlinResolver<'a> {
     /// chain is empty: the file has no classifier and declares no type
     /// parameters.
     item: Option<hir_expand::ids::ItemId>,
-    scope: hir::ResolutionScope,
+    scope: jvm_index::ResolutionScope,
     /// The type parameters in scope at the resolved item, innermost last.
     type_params: Vec<TypeParamScope>,
     /// The type parameters whose *bounds* are being resolved, so a re-entrant
@@ -141,8 +141,8 @@ impl<'a> KotlinResolver<'a> {
         }
     }
 
-    /// The file's scope, for a caller that needs the raw [`hir::ResolutionScope`].
-    pub fn scope(&self) -> &hir::ResolutionScope {
+    /// The file's scope, for a caller that needs the raw [`jvm_index::ResolutionScope`].
+    pub fn scope(&self) -> &jvm_index::ResolutionScope {
         &self.scope
     }
 
@@ -315,7 +315,7 @@ impl<'a> KotlinResolver<'a> {
             return None;
         }
         let name = self.tree.data(item).name()?;
-        let class = hir::SourceClass {
+        let class = jvm_index::SourceClass {
             file: self.file,
             item,
         };
@@ -447,27 +447,27 @@ impl<'a> KotlinResolver<'a> {
     /// this layer reads it: a standard-library classifier the compiler declares
     /// over a JVM type from [`super::ty::mapped_variances`]
     /// (`kotlin.collections.List` declares one), a classfile class from its
-    /// `Signature` attribute ([`hir::class_generic_info`]), and a Kotlin source
+    /// `Signature` attribute ([`jvm_index::class_generic_info`]), and a Kotlin source
     /// class from its item tree. `None` when the declaration is not readable
     /// here.
     fn declared_arity(&self, fqn: &Name) -> Option<usize> {
         if let Some(variances) = super::ty::mapped_variances(fqn) {
             return Some(variances.len());
         }
-        let resolved = hir::fqn_resolve(self.db, &self.scope, fqn.as_str())?;
+        let resolved = jvm_index::fqn_resolve(self.db, &self.scope, fqn.as_str())?;
         match &resolved {
-            hir::Resolved::Library(_) => {
-                let info = hir::class_generic_info(self.db, &resolved)?;
+            jvm_index::Resolved::Library(_) => {
+                let info = jvm_index::class_generic_info(self.db, &resolved)?;
                 Some(info.type_params.len())
             }
-            hir::Resolved::Source(class) => {
-                let tree = hir::file_item_tree(self.db, class.file);
+            jvm_index::Resolved::Source(class) => {
+                let tree = jvm_index::file_item_tree(self.db, class.file);
                 match hir_def::kotlin::plugin::model(&tree)?.data(class.item) {
                     KotlinItemData::Class(data) => Some(data.type_params.len()),
                     _ => None,
                 }
             }
-            hir::Resolved::Facade { .. } => None,
+            jvm_index::Resolved::Facade { .. } => None,
         }
     }
 
@@ -482,12 +482,12 @@ impl<'a> KotlinResolver<'a> {
     /// classpath, which this does not consult — a recorded gap, and the reason
     /// a standard-library function such as `listOf` is not yet a candidate.
     pub fn source_declaration(&self, name: &Name) -> Option<(FileId, hir_expand::ids::ItemId)> {
-        let hir::ResolutionScope::SourceSet(source_set) = &self.scope else {
+        let jvm_index::ResolutionScope::SourceSet(source_set) = &self.scope else {
             return None;
         };
         for candidate in self.tree.candidate_fqns(name.as_str()) {
             for package in package_prefixes(&candidate) {
-                let symbols = hir::source_set_fqn_symbols(
+                let symbols = jvm_index::source_set_fqn_symbols(
                     self.db,
                     source_set.clone(),
                     &Name::new(&package),
@@ -496,9 +496,9 @@ impl<'a> KotlinResolver<'a> {
                 for reference in symbols.iter() {
                     if matches!(
                         reference.symbol.kind,
-                        hir::SourceSymbolKind::Function
-                            | hir::SourceSymbolKind::Property
-                            | hir::SourceSymbolKind::TypeAlias
+                        jvm_index::SourceSymbolKind::Function
+                            | jvm_index::SourceSymbolKind::Property
+                            | jvm_index::SourceSymbolKind::TypeAlias
                     ) {
                         return Some((reference.file, reference.symbol.item));
                     }
@@ -538,15 +538,17 @@ impl<'a> KotlinResolver<'a> {
     }
 
     /// The canonical name of `fqn`, by classpath order: the project's source
-    /// symbols first (through [`hir::fqn_resolve`]), which also finds a library
+    /// symbols first (through [`jvm_index::fqn_resolve`]), which also finds a library
     /// class.
     fn fqn_resolve(&self, fqn: &str) -> Option<Name> {
-        let resolved = hir::fqn_resolve(self.db, &self.scope, fqn)?;
+        let resolved = jvm_index::fqn_resolve(self.db, &self.scope, fqn)?;
         Some(match &resolved {
-            hir::Resolved::Source(class) => hir::source_class_fqn(self.db, class.file, class.item)?,
-            hir::Resolved::Library(_) => resolved.fqn(self.db).as_name().clone(),
+            jvm_index::Resolved::Source(class) => {
+                jvm_index::source_class_fqn(self.db, class.file, class.item)?
+            }
+            jvm_index::Resolved::Library(_) => resolved.fqn(self.db).as_name().clone(),
             // A facade is named by the compiler, not by a declaration.
-            hir::Resolved::Facade { fqn, .. } => fqn.clone(),
+            jvm_index::Resolved::Facade { fqn, .. } => fqn.clone(),
         })
     }
 
@@ -635,7 +637,7 @@ impl<'a> KotlinResolver<'a> {
     /// `kotlin.Any` when it declares none ([KLS
     /// `declarations.html#class-declaration`](https://kotlinlang.org/spec/declarations.html#class-declaration):
     /// a class without a supertype list extends `Any`).
-    pub fn super_types(&self, class: &hir::hir_def::kotlin::item_tree::ClassData) -> Vec<Ty> {
+    pub fn super_types(&self, class: &jvm_index::hir_def::kotlin::item_tree::ClassData) -> Vec<Ty> {
         if class.super_types.is_empty() {
             let any = self
                 .class_fqn("Any")

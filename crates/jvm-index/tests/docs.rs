@@ -2,8 +2,8 @@
 //! every documented declaration, the traditional and Markdown comment forms,
 //! their boundaries, and the recomputation after an edit.
 
-use hir::hir_def::java::item_tree::{ItemId, ItemTree};
 use insta::assert_snapshot;
+use jvm_index::hir_def::java::item_tree::{ItemId, ItemTree};
 use vfs::FileId;
 
 mod common;
@@ -42,7 +42,7 @@ fn render_docs(db: &TestDatabase, file: FileId) -> String {
         let name = data
             .name()
             .map_or_else(|| "<anonymous>".to_owned(), |name| name.as_str().to_owned());
-        let doc = hir::item_doc(db, file, id)
+        let doc = jvm_index::item_doc(db, file, id)
             .map(|doc| format!("{doc:?}"))
             .unwrap_or_else(|| "<none>".to_owned());
         lines.push(format!("{name} {:?} → {doc}", data.kind()));
@@ -188,13 +188,13 @@ println(greeting)
         }],
         &[],
     );
-    let docs: Vec<String> = hir::file_symbols(&db, file_id())
+    let docs: Vec<String> = jvm_index::file_symbols(&db, file_id())
         .into_iter()
         .map(|symbol| {
             format!(
                 "{} → {}",
                 symbol.name,
-                hir::item_doc(&db, file_id(), symbol.item)
+                jvm_index::item_doc(&db, file_id(), symbol.item)
                     .map(|doc| format!("{doc:?}"))
                     .unwrap_or_else(|| "<none>".to_owned())
             )

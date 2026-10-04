@@ -16,7 +16,7 @@ use crate::{
 /// `Object`.
 pub(super) fn pick_instantiation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     lower: &[Ty],
     upper: &[Ty],
     equality: Option<Ty>,
@@ -106,7 +106,7 @@ pub(super) fn pick_instantiation(
 /// unchecked conversion ([§5.1.9]), exactly as in javac's bound check.
 pub(super) fn bounds_compatible(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     inst: &Ty,
     upper: &Ty,
 ) -> bool {
@@ -125,7 +125,11 @@ pub(super) fn bounds_compatible(
 /// Whether `ty` is a supertype of `java.lang.RuntimeException`
 /// ([JLS §18.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-18.html#jls-18.4),
 /// [§18.5.2.3]): a type the invocation may declare a checked exception as.
-fn is_exception_supertype(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) -> bool {
+fn is_exception_supertype(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    ty: &Ty,
+) -> bool {
     let runtime_exception = Ty::reference(db, "java.lang.RuntimeException", Vec::new());
     is_subtype(db, scope, &runtime_exception, ty)
 }

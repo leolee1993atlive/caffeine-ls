@@ -83,7 +83,7 @@ impl DeprecatedApi {
 /// [`Deprecation::Terminal`].
 pub(crate) fn annotation_deprecation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     annotations: &[ItemAnnotationRef],
 ) -> Option<Deprecation> {
@@ -139,7 +139,7 @@ pub(crate) struct DeprecatedReference {
 /// declaration the use sits in.
 pub(crate) fn is_exempt(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     enclosing: Option<Deprecation>,
     use_site_outermost: Option<&Name>,
     api: &DeprecatedApi,
@@ -167,7 +167,7 @@ pub(crate) fn is_exempt(
 /// already covers, and reports it once.
 pub(crate) fn member_deprecation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     owner: &str,
     name: &str,
     declaration: Option<(FileId, ItemId)>,
@@ -189,7 +189,7 @@ pub(crate) fn member_deprecation(
 /// `forRemoval` argument, in the `u32`-backed form `hir` exposes.
 fn library_annotation_deprecation(
     db: &dyn TyDatabase,
-    annotations: &[hir::AnnotationSig<hir::Symbol>],
+    annotations: &[jvm_index::AnnotationSig<jvm_index::Symbol>],
 ) -> Option<Deprecation> {
     let interner = &db.hir_state().interner;
     for annotation in annotations {
@@ -204,7 +204,7 @@ fn library_annotation_deprecation(
             interner.resolve(name) == "forRemoval"
                 && matches!(
                     value,
-                    hir::AnnotationValue::Primitive(PrimitiveValue::Boolean(true))
+                    jvm_index::AnnotationValue::Primitive(PrimitiveValue::Boolean(true))
                 )
         });
         return Some(if for_removal {
@@ -249,20 +249,20 @@ pub(crate) fn item_annotations(data: &ItemData) -> &[ItemAnnotationRef] {
 /// resolved in `scope` ([JLS §9.6.4.6]).
 pub(crate) fn class_deprecation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Option<Deprecation> {
-    match hir::fqn_resolve(db, scope, fqn.as_str())? {
+    match jvm_index::fqn_resolve(db, scope, fqn.as_str())? {
         // A Kotlin file's facade declares nothing to deprecate.
-        hir::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Facade { .. } => None,
         // The class's own language answers
         // ([`crate::lang::LanguageTypes::deprecation`]): a Java declaration
         // through its `@Deprecated`, a Kotlin one through `kotlin.Deprecated`.
-        hir::Resolved::Source(class) => crate::lang::for_file(db, class.file)
+        jvm_index::Resolved::Source(class) => crate::lang::for_file(db, class.file)
             .and_then(|language| language.deprecation(db, class.file, class.item)),
-        hir::Resolved::Library(class) => {
-            let record = hir::class_record(db, &class)?;
-            let hir::ClassOrModuleRecord::Class(stub) = record.as_ref() else {
+        jvm_index::Resolved::Library(class) => {
+            let record = jvm_index::class_record(db, &class)?;
+            let jvm_index::ClassOrModuleRecord::Class(stub) = record.as_ref() else {
                 return None;
             };
             if stub.deprecated {
@@ -285,7 +285,7 @@ pub(crate) fn class_deprecation(
 /// name individually (`new Outer.Inner()` names both).
 pub(crate) fn class_hits(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Vec<(Deprecation, DeprecatedApi)> {
     let mut out = Vec::new();
@@ -334,25 +334,25 @@ fn class_and_enclosing(fqn: &str) -> Vec<&str> {
 /// to match by name alone ([JVMS §4.5]/[§4.6]).
 pub(crate) fn library_member(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     owner: &str,
     name: &str,
     descriptor: Option<&str>,
 ) -> Option<Deprecation> {
-    let hir::Resolved::Library(class) = hir::fqn_resolve(db, scope, owner)? else {
+    let jvm_index::Resolved::Library(class) = jvm_index::fqn_resolve(db, scope, owner)? else {
         return None;
     };
-    let record = hir::class_record(db, &class)?;
-    let hir::ClassOrModuleRecord::Class(stub) = record.as_ref() else {
+    let record = jvm_index::class_record(db, &class)?;
+    let jvm_index::ClassOrModuleRecord::Class(stub) = record.as_ref() else {
         return None;
     };
     let interner = &db.hir_state().interner;
-    let matches = |member_name: &hir::Symbol, member_descriptor: &hir::Symbol| {
+    let matches = |member_name: &jvm_index::Symbol, member_descriptor: &jvm_index::Symbol| {
         interner.resolve(member_name) == name
             && descriptor.is_none_or(|want| interner.resolve(member_descriptor) == want)
     };
     let member_deprecation = |deprecated: bool,
-                              annotations: &[hir::AnnotationSig<hir::Symbol>]|
+                              annotations: &[jvm_index::AnnotationSig<jvm_index::Symbol>]|
      -> Option<Deprecation> {
         if deprecated {
             return Some(
@@ -377,15 +377,19 @@ pub(crate) fn library_member(
 /// Javac's "in" operand for a class ([JLS §9.6.4.6]): the enclosing class's
 /// simple name for a nested class, the package for a top-level one — the empty
 /// name for the unnamed package.
-pub(crate) fn class_owner(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &Name) -> Name {
+pub(crate) fn class_owner(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    fqn: &Name,
+) -> Name {
     let text = fqn.as_str();
-    match hir::fqn_resolve(db, scope, text) {
-        Some(hir::Resolved::Source(class)) => {
+    match jvm_index::fqn_resolve(db, scope, text) {
+        Some(jvm_index::Resolved::Source(class)) => {
             let tree = hir_def::java::plugin::tree(db, class.file);
             source_owner(tree.package.as_ref(), text)
         }
         // A facade is a top-level class: its owner is its package.
-        Some(hir::Resolved::Facade { .. }) => match text.rfind('.') {
+        Some(jvm_index::Resolved::Facade { .. }) => match text.rfind('.') {
             Some(index) => Name::new(&text[..index]),
             None => Name::new(""),
         },
@@ -393,7 +397,7 @@ pub(crate) fn class_owner(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn
         // the reference may write the nesting with dots (`Legacy.Nested`), so
         // the resolution's own FQN — not the written name — decides the
         // "in" operand.
-        Some(hir::Resolved::Library(class)) => {
+        Some(jvm_index::Resolved::Library(class)) => {
             let binary = db.hir_state().interner.resolve(&class.entry.fqn);
             library_owner(binary)
         }
@@ -441,11 +445,11 @@ pub(crate) fn simple_class_name(fqn: &str) -> &str {
 /// exemption of [JLS §9.6.4.6] compares.
 pub(crate) fn outermost_class(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &Name,
 ) -> Option<Name> {
-    match hir::fqn_resolve(db, scope, fqn.as_str()) {
-        Some(hir::Resolved::Source(class)) => {
+    match jvm_index::fqn_resolve(db, scope, fqn.as_str()) {
+        Some(jvm_index::Resolved::Source(class)) => {
             let tree = hir_def::java::plugin::tree(db, class.file);
             let top = source_top_level(tree.package.as_ref().map(Name::as_str), fqn.as_str());
             Some(Name::new(&top))

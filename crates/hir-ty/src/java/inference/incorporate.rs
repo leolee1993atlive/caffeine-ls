@@ -27,7 +27,7 @@ impl Inference {
     pub(super) fn incorporate(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
     ) -> bool {
         loop {
@@ -245,7 +245,7 @@ impl Inference {
     fn implied_bounds(
         &self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         lower: &[Ty],
         upper: &[Ty],
     ) -> Vec<Constraint> {

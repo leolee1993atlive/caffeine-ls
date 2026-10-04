@@ -39,13 +39,13 @@
 use rustc_hash::FxHashMap;
 use vfs::FileId;
 
-use hir::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData, KotlinItemTree};
-use hir::hir_def::kotlin::modifiers::KotlinModifierFlags;
 use hir_expand::body::{
     BodyId, ExprData, ExprId, JumpKind, LocalId, StmtData, StmtId, WhenCondition,
 };
 use hir_expand::name::Name;
 use hir_expand::span::SpannedTypeRef;
+use jvm_index::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData, KotlinItemTree};
+use jvm_index::hir_def::kotlin::modifiers::KotlinModifierFlags;
 
 use super::diagnostics::{KotlinTypeError, MismatchTarget};
 use super::method::{self, CallArg};
@@ -195,7 +195,7 @@ fn infer(
     item: hir_expand::ids::ItemId,
     inferred: Inferred,
 ) -> KotlinBodyTypes {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return KotlinBodyTypes::default();
     };
@@ -203,7 +203,7 @@ fn infer(
     if inferred == Inferred::Body && body.is_none() {
         return KotlinBodyTypes::default();
     }
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let scope = file_scope(db, file);
     let resolver = KotlinResolver::for_item(db, file, tree, item);
     let mut ctx = InferCtx {
@@ -267,14 +267,14 @@ fn infer(
 /// no enclosing declaration: no enclosing classifier, so no implicit receivers
 /// and no `this`, no type parameters and no captures.
 pub fn infer_script_body(db: &dyn TyDatabase, file: FileId) -> KotlinBodyTypes {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return KotlinBodyTypes::default();
     };
     let Some(body) = tree.script_body else {
         return KotlinBodyTypes::default();
     };
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let scope = file_scope(db, file);
     let resolver = KotlinResolver::for_script(db, file, tree);
     let mut ctx = InferCtx {
@@ -305,10 +305,10 @@ pub fn infer_script_body(db: &dyn TyDatabase, file: FileId) -> KotlinBodyTypes {
 
 /// The resolution scope of a file's inference: its source set, or the JDK's
 /// builtins for a file that belongs to none.
-fn file_scope(db: &dyn TyDatabase, file: FileId) -> hir::ResolutionScope {
-    match hir::source_set_for_file(db, file) {
-        Some(source_set) => hir::ResolutionScope::SourceSet(source_set),
-        None => hir::ResolutionScope::JdkBuiltins,
+fn file_scope(db: &dyn TyDatabase, file: FileId) -> jvm_index::ResolutionScope {
+    match jvm_index::source_set_for_file(db, file) {
+        Some(source_set) => jvm_index::ResolutionScope::SourceSet(source_set),
+        None => jvm_index::ResolutionScope::JdkBuiltins,
     }
 }
 
@@ -322,7 +322,7 @@ struct InferCtx<'a> {
     /// are attributed to the file
     /// ([`method::access_context_of_file`]).
     item: Option<hir_expand::ids::ItemId>,
-    scope: hir::ResolutionScope,
+    scope: jvm_index::ResolutionScope,
     tree: &'a KotlinItemTree,
     bodies: &'a hir_expand::body::BodyTree,
     resolver: KotlinResolver<'a>,
@@ -1480,13 +1480,13 @@ impl<'a> InferCtx<'a> {
         if self.builtin_name("Boolean").as_deref() == Some(name.as_str()) {
             return false;
         }
-        let Some(resolved) = hir::fqn_resolve(self.db, &self.scope, name.as_str()) else {
+        let Some(resolved) = jvm_index::fqn_resolve(self.db, &self.scope, name.as_str()) else {
             return true;
         };
-        let hir::Resolved::Source(class) = &resolved else {
+        let jvm_index::Resolved::Source(class) = &resolved else {
             return true;
         };
-        let outer = hir::file_item_tree(self.db, class.file);
+        let outer = jvm_index::file_item_tree(self.db, class.file);
         let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
             return false;
         };
@@ -1685,14 +1685,14 @@ impl<'a> InferCtx<'a> {
     /// the gate that keeps `interface Action { fun run() }` from accepting a
     /// lambda; a *Java* interface is not gated here at all.
     fn is_kotlin_non_fun_interface(&self, ty: &Ty) -> bool {
-        let Some(hir::Resolved::Source(source)) =
+        let Some(jvm_index::Resolved::Source(source)) =
             crate::jvm::resolve::reference_class(self.db, &self.scope, ty)
         else {
             return false;
         };
         // A classfile declares no Kotlin declaration, and a facade is no
         // interface.
-        let tree = hir::file_item_tree(self.db, source.file);
+        let tree = jvm_index::file_item_tree(self.db, source.file);
         let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
             return false;
         };
@@ -2144,7 +2144,7 @@ impl<'a> InferCtx<'a> {
                 .as_str()
                 .rsplit_once('.')
                 .map(|(owner, _)| owner)?;
-            let Some(class) = hir::fqn_resolve(self.db, &self.scope, owner) else {
+            let Some(class) = jvm_index::fqn_resolve(self.db, &self.scope, owner) else {
                 continue;
             };
             let owner_ty = Ty::reference(self.db, owner, Vec::new());
@@ -2153,7 +2153,7 @@ impl<'a> InferCtx<'a> {
                 None => method::access_context_of_file(self.db, self.file),
             };
             let field = match &class {
-                hir::Resolved::Library(_) | hir::Resolved::Source(_) => {
+                jvm_index::Resolved::Library(_) | jvm_index::Resolved::Source(_) => {
                     crate::jvm::member_set::pick_field(
                         self.db,
                         &self.scope,
@@ -2162,7 +2162,7 @@ impl<'a> InferCtx<'a> {
                         &ctx,
                     )
                 }
-                hir::Resolved::Facade { .. } => None,
+                jvm_index::Resolved::Facade { .. } => None,
             };
             if let Some(field) = field {
                 return Some(super::ty::ty_from_java(self.db, field.ty));
@@ -2423,7 +2423,7 @@ impl<'a> InferCtx<'a> {
             // signature the compiler never considered. A name the declaring file
             // declares once is judged; the enclosing file's own names are
             // enumerated whole above.
-            let declared = hir::file_symbols(self.db, file)
+            let declared = jvm_index::file_symbols(self.db, file)
                 .iter()
                 .filter(|symbol| {
                     symbol
@@ -3213,7 +3213,7 @@ impl<'a> InferCtx<'a> {
         };
         match &member.target {
             method::MemberTarget::Kotlin { file, item } => {
-                let outer = hir::file_item_tree(self.db, *file);
+                let outer = jvm_index::file_item_tree(self.db, *file);
                 let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
                     return true;
                 };

@@ -2,7 +2,7 @@
 //! workspace-wide symbol search, plus direct access to the HIR type layer.
 //!
 //! These are the IDE-facing wrappers over the classpath-scoped source symbol
-//! index of `hir` (see [`hir::source_set_symbols`]). All queries are salsa
+//! index of `hir` (see [`jvm_index::source_set_symbols`]). All queries are salsa
 //! memoized; the `ide::Analysis` methods below funnel them through the
 //! cancellation boundary.
 
@@ -19,7 +19,7 @@ pub(crate) fn range_ctx(
     crate::lang::ide(language)?;
     let parse = ide_db::base_db::parse(db, file, language);
     let source = parse.syntax_node(language);
-    let map = hir::hir_def::db::ast_id_map(db, file, language).clone();
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, language).clone();
     Some((map, source))
 }
 use rowan::TextRange;
@@ -29,7 +29,7 @@ use vfs::FileId;
 
 use crate::RootDatabase;
 
-pub(crate) type ItemId = hir::hir_def::jvm::ids::ItemId;
+pub(crate) type ItemId = jvm_index::hir_def::jvm::ids::ItemId;
 
 /// A source symbol as seen by the IDE.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +38,7 @@ pub struct DocumentSymbol {
     /// Kept fully qualified so the LSP layer can nest members under their
     /// enclosing type; the client-facing text is [`DocumentSymbol::display_name`].
     pub name: String,
-    pub kind: hir::SourceSymbolKind,
+    pub kind: jvm_index::SourceSymbolKind,
     /// The source range of the declaration.
     pub range: TextRange,
     /// The source range of just the declared name (the identifier).
@@ -56,7 +56,7 @@ pub struct DocumentSymbol {
     pub detail: Option<String>,
     /// The lowered item, for later HIR queries (e.g. [`crate::Analysis::item_ty`]).
     /// `None` for synthesized symbols (the file's package).
-    pub item: Option<hir::hir_def::jvm::ids::ItemId>,
+    pub item: Option<jvm_index::hir_def::jvm::ids::ItemId>,
 }
 
 /// A workspace symbol picker row: the three fields a client renders before
@@ -72,7 +72,7 @@ pub struct WorkspaceSymbolSummary {
     /// member form keeps `Class.member` queries matching the row's label in
     /// clients that filter server results client-side (VS Code).
     pub name: String,
-    pub kind: hir::SourceSymbolKind,
+    pub kind: jvm_index::SourceSymbolKind,
     /// Client-facing container: the package for top-level types and members
     /// (`com.example`); the enclosing type's FQN for nested types. `None` in
     /// the unnamed package.
@@ -113,7 +113,7 @@ pub(crate) fn default_package_symbol(_db: &RootDatabase, _file_id: FileId) -> Do
     DocumentSymbol {
         name: name.clone(),
         display_name: name,
-        kind: hir::SourceSymbolKind::Package,
+        kind: jvm_index::SourceSymbolKind::Package,
         range: TextRange::default(),
         name_range: TextRange::default(),
         detail: None,
@@ -134,12 +134,12 @@ pub fn workspace_symbol_summaries(
     query: &str,
     files: Option<&[FileId]>,
 ) -> Vec<WorkspaceSymbolSummary> {
-    let mut refs: Vec<hir::SourceSymbolRef> = Vec::new();
+    let mut refs: Vec<jvm_index::SourceSymbolRef> = Vec::new();
     match files {
         None => {
             // Index path — exactly the current collection logic, no filtering.
             for source_set in registered_source_sets(db) {
-                let index = hir::source_set_symbols(db, source_set);
+                let index = jvm_index::source_set_symbols(db, source_set);
                 if query.trim().is_empty() {
                     refs.extend(index.iter().cloned());
                 } else {
@@ -155,11 +155,11 @@ pub fn workspace_symbol_summaries(
             // substring).
             let query = query.to_lowercase();
             for &file in files {
-                for symbol in hir::file_symbols(db, file).iter() {
+                for symbol in jvm_index::file_symbols(db, file).iter() {
                     if query.trim().is_empty()
                         || symbol.name.as_str().to_lowercase().contains(&query)
                     {
-                        refs.push(hir::SourceSymbolRef {
+                        refs.push(jvm_index::SourceSymbolRef {
                             file,
                             symbol: symbol.clone(),
                         });
@@ -185,9 +185,9 @@ pub fn workspace_symbol_summaries(
                 // fully-qualified queries survive the client's local filter,
                 // which fuzzy-matches the row's `name` and drops rows it
                 // does not match.
-                hir::SourceSymbolKind::Method
-                | hir::SourceSymbolKind::Field
-                | hir::SourceSymbolKind::EnumConstant => {
+                jvm_index::SourceSymbolKind::Method
+                | jvm_index::SourceSymbolKind::Field
+                | jvm_index::SourceSymbolKind::EnumConstant => {
                     let (parent, simple) = fqn.rsplit_once('.').unwrap_or(("", fqn.as_str()));
                     let (container, enclosing) = parent
                         .rsplit_once('.')
@@ -219,13 +219,13 @@ pub fn workspace_symbol_summaries(
 /// `workspaceSymbol/resolve` half of the flow. Returns `None` for a stale
 /// `(file, item)` (file rewritten or deleted since the row was served).
 pub fn source_symbol_range(db: &RootDatabase, file_id: FileId, item: u32) -> Option<TextRange> {
-    let item = hir::hir_def::jvm::ids::ItemId(hir_expand::arena::ArenaId(item));
+    let item = jvm_index::hir_def::jvm::ids::ItemId(hir_expand::arena::ArenaId(item));
     crate::lang::for_file(db, file_id).and_then(|ide| ide.source_symbol_range(db, file_id, item))
 }
 
 /// The registered source sets of the project graph, in unspecified order.
-fn registered_source_sets(db: &RootDatabase) -> Vec<hir::SourceSetId> {
-    hir::project_graph(db)
+fn registered_source_sets(db: &RootDatabase) -> Vec<jvm_index::SourceSetId> {
+    jvm_index::project_graph(db)
         .map(|graph| graph.source_sets(db).keys().cloned().collect())
         .unwrap_or_default()
 }
@@ -233,7 +233,11 @@ fn registered_source_sets(db: &RootDatabase) -> Vec<hir::SourceSetId> {
 /// The declared type of an item — a field's type, a method's return type, or
 /// the type of a class-like declaration — rendered from the HIR type layer
 /// with the *simple* class name (the last `.`-segment).
-pub fn item_ty(db: &RootDatabase, file_id: FileId, item: hir::hir_def::jvm::ids::ItemId) -> String {
+pub fn item_ty(
+    db: &RootDatabase,
+    file_id: FileId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
+) -> String {
     crate::lang::for_file(db, file_id)
         .map_or_else(String::new, |ide| ide.item_ty(db, file_id, item))
 }
@@ -243,7 +247,7 @@ pub fn item_ty(db: &RootDatabase, file_id: FileId, item: hir::hir_def::jvm::ids:
 pub fn method_params(
     db: &RootDatabase,
     file_id: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
 ) -> Arc<[String]> {
     crate::lang::for_file(db, file_id).map_or_else(
         || Arc::from(Vec::new()),

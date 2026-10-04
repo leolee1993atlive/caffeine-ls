@@ -2,11 +2,11 @@
 //! per-source-set FQN table, classpath-order resolution and incremental
 //! invalidation.
 
-use hir::{
+use insta::assert_snapshot;
+use jvm_index::{
     ResolutionScope, Resolved, SourceSymbol, SourceSymbolIndex, file_symbols, fqn_resolve,
     source_set_symbols,
 };
-use insta::assert_snapshot;
 use project_model::LibraryId;
 use vfs::FileId;
 
@@ -341,7 +341,7 @@ fn classpath_shadowing_across_source_sets() {
                 )],
                 // The test source set depends on main, which defines the
                 // same FQN.
-                classpath: vec![hir::ClasspathEntry::SourceSet(main.clone())],
+                classpath: vec![jvm_index::ClasspathEntry::SourceSet(main.clone())],
             },
         ],
         &[],
@@ -399,14 +399,14 @@ fn classpath_scoping_hides_unlisted_source_set() {
                     "/b/src/test/java/com/example/Public.java",
                     "package com.example;\n\nclass Public {}\n",
                 )],
-                classpath: vec![hir::ClasspathEntry::SourceSet(a.clone())],
+                classpath: vec![jvm_index::ClasspathEntry::SourceSet(a.clone())],
             },
             // c depends on b but not on a: b's own classes are visible, a's
             // are not re-exported through b.
             Root {
                 source_set: c.clone(),
                 files: vec![],
-                classpath: vec![hir::ClasspathEntry::SourceSet(b.clone())],
+                classpath: vec![jvm_index::ClasspathEntry::SourceSet(b.clone())],
             },
         ],
         &[],
@@ -447,7 +447,8 @@ fn fqn_resolve_source_beats_library() {
     let jar = path.join("greeter.jar");
     common::build_jar(&jar, "com/example/Greeter");
     let library = LibraryId::from_file_path(jar.as_std_path()).unwrap();
-    let library_info = hir::LibraryInfo::new(hir::LibraryKind::Jar, common::abs_path(&jar));
+    let library_info =
+        jvm_index::LibraryInfo::new(jvm_index::LibraryKind::Jar, common::abs_path(&jar));
 
     let db = build(
         &[Root {
@@ -457,7 +458,7 @@ fn fqn_resolve_source_beats_library() {
                 "/src/main/java/com/example/Greeter.java",
                 "package com.example;\n\npublic class Greeter {}\n",
             )],
-            classpath: vec![hir::ClasspathEntry::Library(library)],
+            classpath: vec![jvm_index::ClasspathEntry::Library(library)],
         }],
         &[(library, library_info)],
     );
@@ -556,8 +557,8 @@ fn body_edit_keeps_symbols_and_index_stable() {
 
 /// The default main source set of an arbitrary project (for multi-project
 /// fixtures).
-fn main_source_set_with_project(project: u32) -> hir::SourceSetId {
-    hir::SourceSetId {
+fn main_source_set_with_project(project: u32) -> jvm_index::SourceSetId {
+    jvm_index::SourceSetId {
         project: project_model::ProjectId(project),
         kind: project_model::SourceSetKind::Main,
     }

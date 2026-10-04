@@ -1,5 +1,5 @@
 //! Shared test fixtures: a minimal salsa database implementing the full
-//! `SourceDatabase` → `hir::HirDatabase` trait stack plus a small class-file
+//! `SourceDatabase` → `jvm_index::HirDatabase` trait stack plus a small class-file
 //! jar builder, so integration tests can exercise the source symbol index and
 //! the classpath-wired resolver end to end.
 
@@ -9,7 +9,7 @@ use base_db::{
     DepsMap, FileChange, FileSourceRootInput, FileText, Files, Nonce, SourceDatabase, SourceRoot,
     SourceRootId, SourceRootInput, salsa::Durability,
 };
-use hir::{
+use jvm_index::{
     ClasspathEntry, HirState, JavaDatabase, JvmDatabase, KotlinDatabase, LibraryInfo,
     ProjectGraphData, SourceSetId, lmdb_store::StubStore, set_project_graph,
 };
@@ -174,7 +174,7 @@ impl JavaDatabase for TestDatabase {}
 impl KotlinDatabase for TestDatabase {}
 
 #[salsa::db]
-impl hir::HirDatabase for TestDatabase {}
+impl jvm_index::HirDatabase for TestDatabase {}
 
 #[salsa::db]
 impl hir_expand::db::DefDatabase for TestDatabase {}
@@ -229,7 +229,7 @@ pub fn build_with_library_sources(
             .insert(SourceRootId(idx as u32), root.source_set.clone());
         data.source_sets.insert(
             root.source_set.clone(),
-            Arc::new(hir::Classpath {
+            Arc::new(jvm_index::Classpath {
                 entries: root.classpath.clone(),
             }),
         );
@@ -266,7 +266,7 @@ pub fn build_with_library_sources(
         data.library_source_roots.insert(root_id, fixture.library);
         data.library_sources.insert(
             fixture.library,
-            hir::LibrarySources {
+            jvm_index::LibrarySources {
                 archive: abs_path(&fixture.archive),
                 root: abs_path(&fixture.root),
             },
@@ -365,7 +365,7 @@ pub fn build_jar(path: &camino::Utf8Path, fqn: &str) {
 
 /// The path an archive entry materializes at below the source root: the module
 /// segment of a JDK 9+ `src.zip` entry (`<module>/<package path>/X.java`) is
-/// dropped, which is exactly the rule `hir::lib_source` applies.
+/// dropped, which is exactly the rule `jvm_index::lib_source` applies.
 fn entry_relative_path(entry: &str) -> &str {
     match entry.split_once('/') {
         Some((head, rest)) if head.contains('.') => rest,

@@ -61,18 +61,18 @@
 //! class-kind table already does.
 
 use classfile::stub::TypeRef;
-use hir::hir_def::kotlin::item_tree::{
-    ClassData, ConstructorData, FunctionData, KotlinAnnotationRef, KotlinClassKind, KotlinItemData,
-    KotlinItemTree, PropertyData,
-};
-use hir::hir_def::kotlin::modifiers::{
-    KotlinModality, KotlinModifierFlags, KotlinModifiers, KotlinVisibility,
-};
 use hir_def::jvm::decl::ItemAnnotationValue;
 use hir_def::kotlin::annotations::JvmAnnotation;
 use hir_expand::body::Literal;
 use hir_expand::ids::ItemId;
 use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{
+    ClassData, ConstructorData, FunctionData, KotlinAnnotationRef, KotlinClassKind, KotlinItemData,
+    KotlinItemTree, PropertyData,
+};
+use jvm_index::hir_def::kotlin::modifiers::{
+    KotlinModality, KotlinModifierFlags, KotlinModifiers, KotlinVisibility,
+};
 use vfs::FileId;
 
 use super::resolve::KotlinResolver;
@@ -87,11 +87,11 @@ use crate::ty::{Ty, TypeVarScope};
 /// the Java source enumeration's twin, for a Kotlin file.
 pub fn java_view_members(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
     args: &[Ty],
     name: &str,
 ) -> Vec<MethodData> {
-    let tree = hir::file_item_tree(db, source.file);
+    let tree = jvm_index::file_item_tree(db, source.file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -153,11 +153,11 @@ pub fn java_view_members(
 /// `enum class`'s entries.
 pub fn java_view_fields(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
     args: &[Ty],
     name: &str,
 ) -> Vec<FieldData> {
-    let tree = hir::file_item_tree(db, source.file);
+    let tree = jvm_index::file_item_tree(db, source.file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -219,7 +219,7 @@ pub fn java_view_fields(
 /// function and property of the file, under the JVM names the compiler gives
 /// them.
 pub fn file_facade_members(db: &dyn TyDatabase, file: FileId, name: &str) -> Vec<MethodData> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -238,7 +238,7 @@ pub fn file_facade_members(db: &dyn TyDatabase, file: FileId, name: &str) -> Vec
 /// The static fields of a Kotlin file's facade: its `const val`s and
 /// `@JvmField` properties.
 pub fn file_facade_fields(db: &dyn TyDatabase, file: FileId, name: &str) -> Vec<FieldData> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -260,9 +260,9 @@ pub fn file_facade_fields(db: &dyn TyDatabase, file: FileId, name: &str) -> Vec<
 /// the module name with every character a Kotlin identifier cannot hold spelled
 /// `_` — `-module-name my-app` compiles `internal fun m()` to `m$my_app()`, and
 /// `UPPER.Case` to `m$UPPER_Case()` (kotlinc 2.4.20) — the same normalization
-/// [`hir::kotlin::plugin`]'s facade naming applies to a file's stem.
+/// [`jvm_index::kotlin::plugin`]'s facade naming applies to a file's stem.
 ///
-/// The name is the source set's ([`hir::module_name`], which the build systems
+/// The name is the source set's ([`jvm_index::module_name`], which the build systems
 /// set to the project's name); a workspace that declares none compiles an
 /// *unnamed* module, whose compiler default is `main` (`m$main()`).
 ///
@@ -275,8 +275,8 @@ pub fn file_facade_fields(db: &dyn TyDatabase, file: FileId, name: &str) -> Vec<
 /// for the name is not guessed: the model carries one, and the name is read
 /// where the compilers' command lines are built.
 fn module_suffix(db: &dyn TyDatabase, file: FileId) -> String {
-    let module = hir::source_set_for_file(db, file)
-        .and_then(|source_set| hir::module_name(db, &source_set))
+    let module = jvm_index::source_set_for_file(db, file)
+        .and_then(|source_set| jvm_index::module_name(db, &source_set))
         .unwrap_or_else(|| Name::new("main"));
     module
         .as_str()
@@ -300,12 +300,12 @@ fn resolver_of<'a>(
 }
 
 /// The fully qualified name of a Kotlin file's facade class — the *index*
-/// layer's own answer ([`hir::file_facade_class`]), which the type layer reads
+/// layer's own answer ([`jvm_index::file_facade_class`]), which the type layer reads
 /// rather than deriving a second one of its own: the file's stem with `Kt`
 /// appended, or the `@file:JvmName` the file writes
 /// (<https://kotlinlang.org/docs/java-interop.html#package-level-functions>).
 fn facade_fqn(tree: &KotlinItemTree, db: &dyn TyDatabase, file: FileId) -> Option<Name> {
-    let facade = hir::file_facade_class(db, file)?;
+    let facade = jvm_index::file_facade_class(db, file)?;
     Some(match &tree.package {
         Some(package) => Name::new(&format!("{package}.{facade}")),
         None => facade,
@@ -313,8 +313,8 @@ fn facade_fqn(tree: &KotlinItemTree, db: &dyn TyDatabase, file: FileId) -> Optio
 }
 
 /// The class key of a Kotlin source class.
-fn class_key(db: &dyn TyDatabase, source: hir::SourceClass) -> ClassKey {
-    match hir::source_class_fqn(db, source.file, source.item) {
+fn class_key(db: &dyn TyDatabase, source: jvm_index::SourceClass) -> ClassKey {
+    match jvm_index::source_class_fqn(db, source.file, source.item) {
         Some(fqn) => ClassKey::Named(fqn),
         None => ClassKey::Local(source),
     }
@@ -439,7 +439,7 @@ fn annotation_string(
 /// initializer; `None` for any other declaration, or for a constant whose
 /// initializer is not a string literal.
 fn const_string_value(db: &dyn TyDatabase, file: FileId, item: ItemId) -> Option<String> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let tree = hir_def::kotlin::plugin::model(&tree)?;
     let KotlinItemData::Property(property) = tree.data(item) else {
         return None;
@@ -452,7 +452,7 @@ fn const_string_value(db: &dyn TyDatabase, file: FileId, item: ItemId) -> Option
         return None;
     }
     let expr = property.initializer_expr?;
-    match hir::file_body_tree(db, file).expr(expr) {
+    match jvm_index::file_body_tree(db, file).expr(expr) {
         hir_expand::body::ExprData::Literal(Literal::Str(value)) => Some(value.clone()),
         _ => None,
     }
@@ -1447,7 +1447,7 @@ impl<'a> Shapes<'a> {
                     // and the spelling the model keys a source classifier by.
                     ty: Ty::reference(
                         self.db,
-                        hir::source_class_fqn(self.db, self.file, item)
+                        jvm_index::source_class_fqn(self.db, self.file, item)
                             .unwrap_or_else(|| class.name.clone()),
                         Vec::new(),
                     ),

@@ -74,7 +74,7 @@ pub(crate) fn item_deprecation(
     file: FileId,
     item: ItemId,
 ) -> Option<Deprecation> {
-    let outer = hir::file_item_tree(db, file);
+    let outer = jvm_index::file_item_tree(db, file);
     let tree = hir_def::kotlin::plugin::model(&outer)?;
     let resolver = KotlinResolver::for_item(db, file, tree, item);
     for application in annotations_of(tree.data(item)) {

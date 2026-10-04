@@ -27,7 +27,7 @@ impl LanguageDiagnostics for Java {
     }
 
     fn body_diagnostics(&self, sink: &mut DiagnosticSink, db: &dyn TyDatabase, file_id: FileId) {
-        let tree = hir::hir_def::java::plugin::tree(db, file_id);
+        let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
         for (item_id, _) in all_items(&tree) {
             for diagnostic in item_diagnostics_impl(db, file_id, item_id) {
                 sink.push(file_id, diagnostic);
@@ -52,7 +52,7 @@ impl LanguageDiagnostics for Java {
                 // defaults, missing `@Override`) are keyed to the declaring method
                 // name; point at the whole declaration when no reference range is
                 // recorded.
-                let tree = hir::hir_def::java::plugin::tree(db, file_id);
+                let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
                 let method_name = diagnostic.method_name();
                 let item = tree
                     .top
@@ -68,8 +68,8 @@ impl LanguageDiagnostics for Java {
                     }
                     let source =
                         ide_db::base_db::parse(db, file_id, language).syntax_node(language);
-                    let map = hir::hir_def::db::ast_id_map(db, file_id, language);
-                    hir::hir_def::java::ranges::item_range(map, &source, &tree, item)
+                    let map = jvm_index::hir_def::db::ast_id_map(db, file_id, language);
+                    jvm_index::hir_def::java::ranges::item_range(map, &source, &tree, item)
                 })
             }) else {
                 continue;

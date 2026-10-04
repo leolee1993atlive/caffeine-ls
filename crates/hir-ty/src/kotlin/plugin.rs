@@ -5,9 +5,9 @@
 use triomphe::Arc;
 
 use base_db::LanguageKind;
-use hir::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData};
-use hir::hir_def::kotlin::modifiers::KotlinModality;
 use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData};
+use jvm_index::hir_def::kotlin::modifiers::KotlinModality;
 use rustc_hash::FxHashSet;
 use vfs::FileId;
 
@@ -48,7 +48,12 @@ impl LanguageTypes for Kotlin {
         ty_from_kotlin(db, ty)
     }
 
-    fn supertypes(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: Ty) -> Vec<Ty> {
+    fn supertypes(
+        &self,
+        db: &dyn TyDatabase,
+        scope: &jvm_index::ResolutionScope,
+        ty: Ty,
+    ) -> Vec<Ty> {
         subtyping::supertypes(db, scope, &ty)
     }
 
@@ -95,30 +100,30 @@ impl JvmMemberSource for Kotlin {
     fn methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<MethodData> {
         match class {
-            hir::Resolved::Source(source) => java_view_members(db, *source, args, name),
+            jvm_index::Resolved::Source(source) => java_view_members(db, *source, args, name),
             // A file's facade carries its top-level functions.
-            hir::Resolved::Facade { file, .. } => file_facade_members(db, *file, name),
-            hir::Resolved::Library(_) => Vec::new(),
+            jvm_index::Resolved::Facade { file, .. } => file_facade_members(db, *file, name),
+            jvm_index::Resolved::Library(_) => Vec::new(),
         }
     }
 
     fn fields(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<FieldData> {
         match class {
-            hir::Resolved::Source(source) => java_view_fields(db, *source, args, name),
+            jvm_index::Resolved::Source(source) => java_view_fields(db, *source, args, name),
             // A file's facade carries its top-level `const val`s.
-            hir::Resolved::Facade { file, .. } => file_facade_fields(db, *file, name),
-            hir::Resolved::Library(_) => Vec::new(),
+            jvm_index::Resolved::Facade { file, .. } => file_facade_fields(db, *file, name),
+            jvm_index::Resolved::Library(_) => Vec::new(),
         }
     }
 
@@ -133,10 +138,10 @@ impl JvmMemberSource for Kotlin {
     fn abstract_methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
     ) -> Vec<MethodData> {
-        let hir::Resolved::Source(source) = class else {
+        let jvm_index::Resolved::Source(source) = class else {
             return Vec::new();
         };
         java_view_members(db, *source, args, "")
@@ -160,13 +165,17 @@ impl JvmMemberSource for Kotlin {
     /// interface is never final, and neither is an enum whose entries may write
     /// bodies — the classfile still marks the `final` the compiler emits, and
     /// nothing here needs to claim it.
-    fn kind(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Option<(JvmClassKind, bool)> {
+    fn kind(
+        &self,
+        db: &dyn TyDatabase,
+        class: &jvm_index::Resolved,
+    ) -> Option<(JvmClassKind, bool)> {
         match class {
             // A file's facade is a final class.
-            hir::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
-            hir::Resolved::Library(_) => None,
-            hir::Resolved::Source(source) => {
-                let tree = hir::file_item_tree(db, source.file);
+            jvm_index::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
+            jvm_index::Resolved::Library(_) => None,
+            jvm_index::Resolved::Source(source) => {
+                let tree = jvm_index::file_item_tree(db, source.file);
                 let tree = hir_def::kotlin::plugin::model(&tree)?;
                 let KotlinItemData::Class(declaration) = tree.data(source.item) else {
                     return None;

@@ -15,7 +15,7 @@ mod common;
 
 use camino::Utf8PathBuf;
 use common::TestDatabase;
-use hir::{LibraryId, LibraryKind};
+use jvm_index::{LibraryId, LibraryKind};
 use vfs::AbsPathBuf;
 
 /// A database with the JDK at `JAVA_HOME` registered as its single library.
@@ -34,16 +34,16 @@ fn real_jdk() -> Option<(TestDatabase, LibraryId)> {
     let lib = LibraryId::from_file_path(archive.as_std_path()).unwrap();
 
     let mut db = TestDatabase::new();
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         lib,
-        hir::LibraryInfo::new(
+        jvm_index::LibraryInfo::new(
             LibraryKind::Jimage,
             AbsPathBuf::assert_utf8(archive.into_std_path_buf()),
         ),
     );
     data.jdk_libraries.push(lib);
-    hir::set_project_graph(&mut db, data);
+    jvm_index::set_project_graph(&mut db, data);
     Some((db, lib))
 }
 
@@ -51,7 +51,7 @@ fn real_jdk() -> Option<(TestDatabase, LibraryId)> {
 /// release directory at all — a pre-JDK-9 install, whose platform view is its
 /// own `rt.jar` and which therefore has no `--release` platform view to check.
 fn release_bounds(db: &TestDatabase, lib: LibraryId) -> Option<(u8, u8)> {
-    let index = hir::ct_sym_index(db, lib).expect("the SDK ships a readable symbol archive");
+    let index = jvm_index::ct_sym_index(db, lib).expect("the SDK ships a readable symbol archive");
     let (min, max) = (index.min_release(), index.max_release());
     if min > max {
         eprintln!(
@@ -71,22 +71,22 @@ fn real_ct_sym_indexes_and_reports() {
     let Some((min, max)) = release_bounds(&db, lib) else {
         return;
     };
-    let index = hir::ct_sym_index(&db, lib).expect("the SDK ships a readable symbol archive");
+    let index = jvm_index::ct_sym_index(&db, lib).expect("the SDK ships a readable symbol archive");
     // A class the archive tracks at all is tracked at the archive's last
     // release: `ct.sym` is generated from the very JDK that ships it.
     assert!(index.tracks("java.lang.Object"));
     // `--release` cannot name a release the archive does not carry a view for.
-    assert!(hir::ct_sym_class_not_in_release(&db, lib, max, "java.util.List").is_none());
+    assert!(jvm_index::ct_sym_class_not_in_release(&db, lib, max, "java.util.List").is_none());
 
     // A class that first appeared in release 21 (`--release 20` rejects it and
     // `--release 21` accepts it) is exactly what `--release 8` must flag.
     if max >= 21 {
         assert_eq!(
-            hir::ct_sym_class_not_in_release(&db, lib, 8, "java.util.SequencedCollection"),
+            jvm_index::ct_sym_class_not_in_release(&db, lib, 8, "java.util.SequencedCollection"),
             Some((8, 21))
         );
         assert_eq!(
-            hir::ct_sym_class_not_in_release(&db, lib, 21, "java.util.SequencedCollection"),
+            jvm_index::ct_sym_class_not_in_release(&db, lib, 21, "java.util.SequencedCollection"),
             None
         );
     } else {
@@ -97,7 +97,7 @@ fn real_ct_sym_indexes_and_reports() {
     // release the archive can answer for.
     for release in min..=max {
         assert_eq!(
-            hir::ct_sym_class_not_in_release(&db, lib, release, "java.util.List"),
+            jvm_index::ct_sym_class_not_in_release(&db, lib, release, "java.util.List"),
             None,
             "java.util.List exists at release {release}"
         );
@@ -108,7 +108,7 @@ fn real_ct_sym_indexes_and_reports() {
     // javac rejects its use through the module system instead.
     assert!(!index.tracks("jdk.internal.misc.Unsafe"));
     assert_eq!(
-        hir::ct_sym_class_not_in_release(&db, lib, 8, "jdk.internal.misc.Unsafe"),
+        jvm_index::ct_sym_class_not_in_release(&db, lib, 8, "jdk.internal.misc.Unsafe"),
         None
     );
 
@@ -117,7 +117,12 @@ fn real_ct_sym_indexes_and_reports() {
     let beyond = max.saturating_add(1);
     if beyond > 19 {
         assert_eq!(
-            hir::ct_sym_class_not_in_release(&db, lib, beyond, "java.util.SequencedCollection"),
+            jvm_index::ct_sym_class_not_in_release(
+                &db,
+                lib,
+                beyond,
+                "java.util.SequencedCollection"
+            ),
             None
         );
     }
@@ -139,7 +144,7 @@ fn real_ct_sym_reports_members_added_later() {
     // release 11, and therefore missing from the release-8 view — which is what
     // a project compiling with `--release 8` must be told.
     assert_eq!(
-        hir::ct_sym_member_not_in_release(
+        jvm_index::ct_sym_member_not_in_release(
             &db,
             lib,
             8,
@@ -151,7 +156,7 @@ fn real_ct_sym_reports_members_added_later() {
     );
     // From release 11 on, the view declares it.
     assert_eq!(
-        hir::ct_sym_member_not_in_release(
+        jvm_index::ct_sym_member_not_in_release(
             &db,
             lib,
             11,
@@ -166,11 +171,11 @@ fn real_ct_sym_reports_members_added_later() {
     // is in the archive's view for 8 and 21 alike, so both are member-level
     // reports, not class-level ones).
     assert_eq!(
-        hir::ct_sym_class_not_in_release(&db, lib, 8, "java.util.List"),
+        jvm_index::ct_sym_class_not_in_release(&db, lib, 8, "java.util.List"),
         None
     );
     assert_eq!(
-        hir::ct_sym_member_not_in_release(
+        jvm_index::ct_sym_member_not_in_release(
             &db,
             lib,
             8,
@@ -188,7 +193,7 @@ fn real_ct_sym_reports_members_added_later() {
         return;
     }
     assert_eq!(
-        hir::ct_sym_member_not_in_release(
+        jvm_index::ct_sym_member_not_in_release(
             &db,
             lib,
             8,
@@ -199,7 +204,7 @@ fn real_ct_sym_reports_members_added_later() {
         Some((8, 21))
     );
     assert_eq!(
-        hir::ct_sym_member_not_in_release(
+        jvm_index::ct_sym_member_not_in_release(
             &db,
             lib,
             21,
@@ -214,7 +219,7 @@ fn real_ct_sym_reports_members_added_later() {
     // the archive can answer for.
     for release in min..=max {
         assert_eq!(
-            hir::ct_sym_member_not_in_release(
+            jvm_index::ct_sym_member_not_in_release(
                 &db,
                 lib,
                 release,

@@ -38,9 +38,9 @@
 
 use triomphe::Arc;
 
-use hir::hir_def::kotlin::item_tree::{KotlinItemData, KotlinItemTree};
 use hir_expand::ids::ItemId;
 use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{KotlinItemData, KotlinItemTree};
 use vfs::FileId;
 
 use super::resolve::KotlinResolver;
@@ -205,7 +205,7 @@ impl Member {
     pub fn call_ty_with(
         &self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         args: &[Ty],
         written: &[Ty],
         expected: Option<&Ty>,
@@ -247,7 +247,7 @@ impl Member {
     ///
     /// A constructor's are the *class's*: `LinkedList<File>(…)` writes the
     /// class's parameter, not a parameter of the constructor.
-    pub fn type_vars(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope) -> Vec<Ty> {
+    pub fn type_vars(&self, db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope) -> Vec<Ty> {
         match &self.target {
             MemberTarget::Kotlin { file, item } => {
                 super::db::type_params(db, *file, *item).to_vec()
@@ -286,7 +286,7 @@ impl Member {
 /// the expected type is not one of the class's supertypes.
 pub fn constructed_ty(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     class: &Ty,
     member: &Member,
     written: &[Ty],
@@ -417,7 +417,7 @@ fn expected_type(db: &dyn TyDatabase, expected: &Ty) -> Ty {
 ///
 /// A Kotlin source class answers from its item tree ([`super::db::type_params`]),
 /// a classfile class from its `Signature` attribute
-/// ([`hir::class_generic_info`]), and a *mapped* classifier the compiler
+/// ([`jvm_index::class_generic_info`]), and a *mapped* classifier the compiler
 /// declares over a JVM type — `kotlin.collections.MutableList` is
 /// `java.util.List`, and has no classfile of its own
 /// ([`super::builtins`]) — from the JVM type's.
@@ -426,13 +426,18 @@ fn expected_type(db: &dyn TyDatabase, expected: &Ty) -> Ty {
 /// the Java layer\'s own resolution ([`java_source_type_vars`]) — the same path
 /// its members\' signatures take — so `LinkedList<File>(…)` written in Kotlin
 /// binds the Java class\'s parameter.
-pub fn class_type_vars(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &Name) -> Vec<Ty> {
-    let resolve = |name: &str| hir::fqn_resolve(db, scope, name);
+pub fn class_type_vars(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    fqn: &Name,
+) -> Vec<Ty> {
+    let resolve = |name: &str| jvm_index::fqn_resolve(db, scope, name);
     let resolved = resolve(fqn.as_str())
         .or_else(|| super::builtins::jvm_class(fqn.as_str()).and_then(|jvm| resolve(jvm)));
     match resolved {
-        Some(hir::Resolved::Library(library)) => {
-            let Some(info) = hir::class_generic_info(db, &hir::Resolved::Library(library.clone()))
+        Some(jvm_index::Resolved::Library(library)) => {
+            let Some(info) =
+                jvm_index::class_generic_info(db, &jvm_index::Resolved::Library(library.clone()))
             else {
                 return Vec::new();
             };
@@ -461,8 +466,8 @@ pub fn class_type_vars(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &
                 })
                 .collect()
         }
-        Some(hir::Resolved::Source(class)) => {
-            match hir_def::kotlin::plugin::model(&hir::file_item_tree(db, class.file)) {
+        Some(jvm_index::Resolved::Source(class)) => {
+            match hir_def::kotlin::plugin::model(&jvm_index::file_item_tree(db, class.file)) {
                 Some(_) => super::db::type_params(db, class.file, class.item).to_vec(),
                 // A *Java* source class: its parameters are declared by the Java
                 // item tree, and their bounds resolve through the Java layer's
@@ -471,7 +476,7 @@ pub fn class_type_vars(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &
                 // source that writes `LinkedList<File>(…)` binds the Java
                 // class's parameter and constructs the instantiated type.
                 None => {
-                    let resolved = hir::Resolved::Source(class);
+                    let resolved = jvm_index::Resolved::Source(class);
                     crate::lang::for_class(db, &resolved)
                         .map(|language| language.source_type_vars(db, &resolved))
                         .unwrap_or_default()
@@ -679,7 +684,7 @@ pub struct CallArg<'a> {
 /// `StringBuilder.append(x)` and `ArrayList<String>()` resolvable from Kotlin.
 pub fn member_set(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     site: CallSite,
@@ -700,7 +705,7 @@ pub fn member_set(
 /// scopes, which are a scan of the classpath and the workspace.
 pub fn declared_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     site: CallSite,
@@ -730,7 +735,7 @@ pub fn declared_members(
 /// not answer.
 pub fn extension_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     site: CallSite,
@@ -757,13 +762,13 @@ pub fn extension_members(
 /// member walk already has it.
 fn collect_extension_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     site: CallSite,
     receiver: &Ty,
     name: &Name,
     out: &mut Vec<Member>,
 ) {
-    let outer = hir::file_item_tree(db, site.file);
+    let outer = jvm_index::file_item_tree(db, site.file);
     let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
         return;
     };
@@ -796,14 +801,14 @@ fn collect_extension_members(
     }
     // 4. Another file's: only a *source set* has a symbol index, and only a
     // source-set receiver can reach one.
-    let hir::ResolutionScope::SourceSet(source_set) = scope else {
+    let jvm_index::ResolutionScope::SourceSet(source_set) = scope else {
         return;
     };
     for package in resolver.packages_in_scope() {
         for (file, item) in
             super::db::extension_candidates(db, source_set.clone(), &package, name).iter()
         {
-            let outer = hir::file_item_tree(db, *file);
+            let outer = jvm_index::file_item_tree(db, *file);
             let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
                 continue;
             };
@@ -825,7 +830,7 @@ fn collect_extension_members(
 /// before the `.` of the declaration and is not a call parameter.
 fn extension_of(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     tree: &KotlinItemTree,
     item: hir_expand::ids::ItemId,
@@ -891,7 +896,7 @@ fn extension_of(
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum ReceiverKey {
     Named(Name),
-    Local(hir::SourceClass),
+    Local(jvm_index::SourceClass),
 }
 
 /// The key the member walk visits `receiver` under, if it names a classifier.
@@ -916,7 +921,7 @@ fn receiver_key(db: &dyn TyDatabase, ty: &Ty) -> Option<ReceiverKey> {
 /// The *local* classifier `ty` is, if it is one: a local class, a local `object`
 /// or an object literal's anonymous class, each identified by its declaration
 /// rather than by a name.
-pub fn local_class_of(db: &dyn TyDatabase, ty: &Ty) -> Option<hir::SourceClass> {
+pub fn local_class_of(db: &dyn TyDatabase, ty: &Ty) -> Option<jvm_index::SourceClass> {
     match ty.kind(db) {
         TyKind::Reference {
             local: Some(local), ..
@@ -935,7 +940,7 @@ pub fn local_class_of(db: &dyn TyDatabase, ty: &Ty) -> Option<hir::SourceClass> 
 #[allow(clippy::too_many_arguments)]
 fn collect_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     ctx: &InvocationContext,
@@ -965,7 +970,7 @@ fn collect_members(
         // Kotlin twin of the Java layer's `ClassKey::Local` member walk.
         ReceiverKey::Local(class) => {
             kotlin_classifier = true;
-            let tree = hir::file_item_tree(db, class.file);
+            let tree = jvm_index::file_item_tree(db, class.file);
             if let Some(tree) = hir_def::kotlin::plugin::model(&tree) {
                 let resolver = KotlinResolver::for_item(db, class.file, tree, class.item);
                 kotlin_members(
@@ -1049,7 +1054,7 @@ fn collect_members(
             // (`List.size` is `java.util.List.size()`, `Int.compareTo` is
             // `java.lang.Integer.compareTo`), their types converted back to
             // Kotlin's by [`member_of_method`].
-            let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+            let Some(resolved) = jvm_index::fqn_resolve(db, scope, fqn.as_str()) else {
                 if let Some(jvm) = super::builtins::jvm_ty(db, *receiver) {
                     java_members(
                         db,
@@ -1066,8 +1071,8 @@ fn collect_members(
                 return;
             };
             match &resolved {
-                hir::Resolved::Source(class) => {
-                    let tree = hir::file_item_tree(db, class.file);
+                jvm_index::Resolved::Source(class) => {
+                    let tree = jvm_index::file_item_tree(db, class.file);
                     match hir_def::kotlin::plugin::model(&tree) {
                         Some(tree) => {
                             kotlin_classifier = true;
@@ -1100,7 +1105,7 @@ fn collect_members(
                         ),
                     }
                 }
-                hir::Resolved::Library(_) => java_members(
+                jvm_index::Resolved::Library(_) => java_members(
                     db,
                     scope,
                     receiver,
@@ -1117,7 +1122,7 @@ fn collect_members(
                 // [`super::infer`] consults, and a caller of another language
                 // reaches them through the facade, which this language's JVM view
                 // answers ([`crate::kotlin::jvm_view`]).
-                hir::Resolved::Facade { .. } => {}
+                jvm_index::Resolved::Facade { .. } => {}
             }
         }
     }
@@ -1147,7 +1152,7 @@ fn collect_members(
 /// set is the constructors rather than the members.
 fn names_the_class(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
 ) -> bool {
@@ -1166,7 +1171,7 @@ fn names_the_class(
     // `java.util.ArrayList`, `MutableList` for `java.util.List` — classifies
     // the same way its JVM name does ([`super::builtins::jvm_class`]).
     let jvm = super::builtins::jvm_class(fqn.as_str()).unwrap_or(fqn.as_str());
-    hir::fqn_resolve(db, scope, jvm).is_some() && fqn.simple_name() == name.as_str()
+    jvm_index::fqn_resolve(db, scope, jvm).is_some() && fqn.simple_name() == name.as_str()
 }
 
 /// The members of one Kotlin declaration's body, plus its companion's when
@@ -1211,7 +1216,7 @@ fn kotlin_members(
     // gives the declaration form; the classifier's members are the standard
     // library's, and `entries` is one of them since Kotlin 1.9).
     if name.as_str() == "entries"
-        && matches!(class, Some(class) if class.kind == hir::hir_def::kotlin::item_tree::KotlinClassKind::Enum)
+        && matches!(class, Some(class) if class.kind == jvm_index::hir_def::kotlin::item_tree::KotlinClassKind::Enum)
     {
         out.push(builtin_member(
             name.clone(),
@@ -1236,7 +1241,7 @@ fn kotlin_members(
     // entry of that name, which a Kotlin caller writes on the enum's class
     // exactly as a Java caller does ([`super::jvm_view`] pushes the pair for
     // one). `valueOf`'s parameter is the one Kotlin names `value`.
-    if matches!(class, Some(class) if class.kind == hir::hir_def::kotlin::item_tree::KotlinClassKind::Enum)
+    if matches!(class, Some(class) if class.kind == jvm_index::hir_def::kotlin::item_tree::KotlinClassKind::Enum)
     {
         if name.as_str() == "values" {
             out.push(builtin_member(
@@ -1415,7 +1420,7 @@ fn kotlin_members(
             KotlinItemData::Class(class)
                 if include_companion
                     && class.kind
-                        == hir::hir_def::kotlin::item_tree::KotlinClassKind::CompanionObject =>
+                        == jvm_index::hir_def::kotlin::item_tree::KotlinClassKind::CompanionObject =>
             {
                 kotlin_members(
                     db,
@@ -1441,7 +1446,7 @@ fn kotlin_members(
     // the class it belongs to — which is also the type it constructs.
     if constructors
         && let Some(class) = class
-        && class.kind == hir::hir_def::kotlin::item_tree::KotlinClassKind::Class
+        && class.kind == jvm_index::hir_def::kotlin::item_tree::KotlinClassKind::Class
         && primary.is_none()
         && !class
             .body
@@ -1530,7 +1535,7 @@ fn component_index(name: &Name) -> Option<usize> {
 #[allow(clippy::too_many_arguments)]
 fn java_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     ctx: &InvocationContext,
@@ -1659,7 +1664,7 @@ fn java_members(
         // The Java `new` path's own naming ([`crate::java::infer::new_expr`]):
         // a classfile constructor is `<init>`, a *source* one is a method named
         // after its class.
-        let constructor_name = match hir::fqn_resolve(
+        let constructor_name = match jvm_index::fqn_resolve(
             db,
             scope,
             reference_fqn(db, receiver)
@@ -1667,7 +1672,7 @@ fn java_members(
                 .map(|fqn| fqn.as_str())
                 .unwrap_or_default(),
         ) {
-            Some(hir::Resolved::Library(_)) => "<init>".to_owned(),
+            Some(jvm_index::Resolved::Library(_)) => "<init>".to_owned(),
             _ => name.simple_name().to_owned(),
         };
         for method in crate::jvm::member_set::member_set(
@@ -1731,7 +1736,7 @@ fn kotlin_function_member(
     item: hir_expand::ids::ItemId,
     name: &Name,
     tree: &KotlinItemTree,
-    function: &hir::hir_def::kotlin::item_tree::FunctionData,
+    function: &jvm_index::hir_def::kotlin::item_tree::FunctionData,
 ) -> Member {
     // The parameter types are resolved in the *declaring item's* scope: a
     // function may declare type parameters of its own
@@ -1786,7 +1791,7 @@ fn java_property_setter(db: &dyn TyDatabase, setter: &MethodData) -> bool {
 /// https://kotlinlang.org/docs/java-interop.html#getters-and-setters
 fn java_setter_matches_getter(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     getter: &MethodData,
     setter: &MethodData,
@@ -1932,7 +1937,7 @@ fn resolver_of_site<'a>(
 /// statements are such a body — the file declares them
 /// ([`KotlinItemTree::script_body`]) — so their call sites are attributed here.
 pub fn access_context_of_file(db: &dyn TyDatabase, file: FileId) -> InvocationContext {
-    let outer = hir::file_item_tree(db, file);
+    let outer = jvm_index::file_item_tree(db, file);
     let package = hir_def::kotlin::plugin::model(&outer).and_then(|tree| {
         tree.package
             .as_ref()
@@ -1960,7 +1965,7 @@ pub fn access_context_for_kotlin(
     file: FileId,
     item: hir_expand::ids::ItemId,
 ) -> InvocationContext {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         // A call site of another language — a Java file, or a `.kts` script no
         // language lowered: the context is the classfile-shaped one the entry
@@ -1984,8 +1989,8 @@ pub fn access_context_for_kotlin(
     }
     let (enclosing_class, subclass_of) = match enclosing {
         Some(class) => {
-            let key =
-                hir::source_class_fqn(db, file, class).map(crate::jvm::member::ClassKey::Named);
+            let key = jvm_index::source_class_fqn(db, file, class)
+                .map(crate::jvm::member::ClassKey::Named);
             let subclass = super::db::supertypes(db, file, class)
                 .first()
                 .and_then(|supertype| match supertype.kind(db) {
@@ -2021,7 +2026,7 @@ pub fn access_context_for_kotlin(
 /// package are memoized ([`super::db::facade_classes`]).
 pub fn library_top_level_callable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     name: &Name,
     args: &[CallArg<'_>],
@@ -2038,11 +2043,11 @@ pub fn library_top_level_callable(
 /// call's reason is read off ([`not_applicable`]).
 pub fn library_top_level_candidates(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     name: &Name,
 ) -> Vec<Member> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -2065,7 +2070,7 @@ pub fn library_top_level_candidates(
 /// package. Memoized per (scope, package, name) by the query.
 fn facade_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     package: &Name,
     name: &Name,
     out: &mut Vec<Member>,
@@ -2098,10 +2103,10 @@ fn facade_members(
 /// could answer.
 fn facades_declaring(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     package: &Name,
     name: &Name,
-) -> Vec<hir::Resolved> {
+) -> Vec<jvm_index::Resolved> {
     let index = super::db::facade_name_index(db, scope, package);
     let mut out = Vec::new();
     for candidate in std::iter::once(name.as_str().to_owned()).chain(property_getters(name)) {
@@ -2121,7 +2126,7 @@ fn facades_declaring(
 /// its property, and a static field a property of its own name.
 pub(crate) fn facade_class_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     facade: &Ty,
     name: &Name,
 ) -> Vec<Member> {
@@ -2199,13 +2204,13 @@ pub(crate) fn facade_class_members(
 /// written on, so the member's `params` are the declared parameters after it.
 pub fn library_extension_members(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     receiver: &Ty,
     name: &Name,
     out: &mut Vec<Member>,
 ) {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return;
     };
@@ -2233,7 +2238,7 @@ pub fn library_extension_members(
 /// top-level declaration, not an extension of this receiver.
 fn as_extension(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     member: Member,
 ) -> Option<Member> {
@@ -2294,7 +2299,7 @@ fn as_extension(
 /// operand, `None` for the operators that write none (`iterator`, `componentN`).
 pub fn pick_operator_callable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     arg: Option<Ty>,
@@ -2315,7 +2320,7 @@ pub fn pick_operator_callable(
 /// candidate applies.
 pub fn pick_callable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &Name,
     args: &[CallArg<'_>],
@@ -2339,7 +2344,7 @@ pub fn pick_callable(
 /// `type-inference.html#call-without-an-explicit-receiver`](https://kotlinlang.org/spec/type-inference.html#call-without-an-explicit-receiver)).
 pub fn top_level_callable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     name: &Name,
     args: &[CallArg<'_>],
@@ -2351,11 +2356,11 @@ pub fn top_level_callable(
 /// call's reason is read off ([`not_applicable`]).
 pub fn top_level_candidates(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     name: &Name,
 ) -> Vec<Member> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Vec::new();
     };
@@ -2373,7 +2378,7 @@ pub fn top_level_candidates(
 /// has already found, which is what an *imported* name resolves to.
 pub fn declaration_callable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     item: hir_expand::ids::ItemId,
     name: &Name,
@@ -2387,12 +2392,12 @@ pub fn declaration_callable(
 /// what a *failed* call's reason is read off ([`not_applicable`]).
 pub fn declaration_candidate(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     file: FileId,
     item: hir_expand::ids::ItemId,
     name: &Name,
 ) -> Option<Member> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let tree = hir_def::kotlin::plugin::model(&tree)?;
     let KotlinItemData::Function(function) = tree.data(item) else {
         return None;
@@ -2408,7 +2413,7 @@ pub fn declaration_candidate(
 /// or `None` when none applies.
 fn select(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     candidates: Vec<Member>,
     args: &[CallArg<'_>],
 ) -> Option<Member> {
@@ -2485,7 +2490,7 @@ pub enum NotApplicable {
 /// records exactly.
 pub fn not_applicable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     members: &[Member],
     args: &[CallArg<'_>],
 ) -> Option<NotApplicable> {
@@ -2518,7 +2523,7 @@ pub fn not_applicable(
 /// [`not_applicable`] for one candidate: `None` when it applies.
 fn why_not(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     member: &Member,
     args: &[CallArg<'_>],
 ) -> Option<NotApplicable> {
@@ -2601,7 +2606,7 @@ fn why_not(
 /// parameter name, then assignability.
 fn applies(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     member: &Member,
     args: &[CallArg<'_>],
 ) -> bool {

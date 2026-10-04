@@ -1046,8 +1046,8 @@ impl InferCtx<'_> {
             .collect();
         let param_class = Ty::reference(self.db, name.clone(), bare.clone());
         let access = self.access.clone();
-        let ctor_name = match hir::fqn_resolve(self.db, &self.scope, name.as_str()) {
-            Some(hir::Resolved::Library(_)) => "<init>".to_owned(),
+        let ctor_name = match jvm_index::fqn_resolve(self.db, &self.scope, name.as_str()) {
+            Some(jvm_index::Resolved::Library(_)) => "<init>".to_owned(),
             _ => name.simple_name().to_owned(),
         };
         let members = member_set(self.db, &self.scope, &param_class, &ctor_name, &access);

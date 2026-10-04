@@ -32,7 +32,7 @@ impl InferCtx<'_> {
     pub(super) fn resolve_type_name_checked(&self, name: &Name) -> Option<Ty> {
         let candidates = crate::java::resolve::candidate_fqns(&self.resolver, name);
         for candidate in candidates {
-            if hir::fqn_resolve(self.db, &self.scope, candidate.as_str()).is_some() {
+            if jvm_index::fqn_resolve(self.db, &self.scope, candidate.as_str()).is_some() {
                 return Some(Ty::reference(self.db, candidate.as_str(), Vec::new()));
             }
         }
@@ -64,8 +64,8 @@ impl InferCtx<'_> {
         // member lookup normalizes by how the target resolves ([§8.8.7.1]).
         let (fqn, _) = receiver_ty.as_reference(self.db).expect("class reference");
         let owner = Name::new(fqn.as_str().rsplit('.').next().unwrap_or(fqn.as_str()));
-        let name = match hir::fqn_resolve(self.db, &self.scope, fqn.as_str()) {
-            Some(hir::Resolved::Library(_)) => Name::new("<init>"),
+        let name = match jvm_index::fqn_resolve(self.db, &self.scope, fqn.as_str()) {
+            Some(jvm_index::Resolved::Library(_)) => Name::new("<init>"),
             _ => owner.clone(),
         };
         // §8.8.7.1: an explicit `super(...)` delegation accesses the

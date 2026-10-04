@@ -68,14 +68,14 @@ pub struct ReferenceTarget {
 pub enum LibraryFileRef {
     /// An entry to read out of the archive.
     Source {
-        library: hir::LibraryId,
+        library: jvm_index::LibraryId,
         archive: AbsPathBuf,
         entry: Arc<str>,
         path: AbsPathBuf,
     },
     /// A class to decompile into `path`.
     Decompile {
-        library: hir::LibraryId,
+        library: jvm_index::LibraryId,
         class: Arc<str>,
         path: AbsPathBuf,
     },
@@ -84,7 +84,7 @@ pub enum LibraryFileRef {
 impl LibraryFileRef {
     /// What makes two refs the same load: the library plus the archive entry,
     /// or the class to decompile.
-    fn load_key(&self) -> (hir::LibraryId, Arc<str>) {
+    fn load_key(&self) -> (jvm_index::LibraryId, Arc<str>) {
         match self {
             LibraryFileRef::Source { library, entry, .. } => (*library, Arc::clone(entry)),
             LibraryFileRef::Decompile { library, class, .. } => (*library, Arc::clone(class)),
@@ -197,7 +197,7 @@ pub(crate) fn classpath_parameter_names(
     method: &hir_ty::MethodData,
 ) -> Option<Vec<String>> {
     let (owner, descriptor, library) = classpath_member(db, file, method)?;
-    hir::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
+    jvm_index::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
         .and_then(|cached| cached.into_names())
 }
 
@@ -210,12 +210,14 @@ pub(crate) fn classpath_pending_parameter_names(
     method: &hir_ty::MethodData,
 ) -> Option<LibraryFileRef> {
     let (owner, descriptor, library) = classpath_member(db, file, method)?;
-    if hir::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor).is_some() {
+    if jvm_index::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
+        .is_some()
+    {
         return None;
     }
-    match hir::library_source_decl(db, library, owner.as_str())? {
-        hir::LibrarySourceDecl::Pending { entry, path } => {
-            let sources = hir::library_sources(db, library)?;
+    match jvm_index::library_source_decl(db, library, owner.as_str())? {
+        jvm_index::LibrarySourceDecl::Pending { entry, path } => {
+            let sources = jvm_index::library_sources(db, library)?;
             Some(LibraryFileRef::Source {
                 library,
                 archive: sources.archive,
@@ -223,7 +225,8 @@ pub(crate) fn classpath_pending_parameter_names(
                 path,
             })
         }
-        hir::LibrarySourceDecl::Loaded { .. } | hir::LibrarySourceDecl::Decompiled { .. } => None,
+        jvm_index::LibrarySourceDecl::Loaded { .. }
+        | jvm_index::LibrarySourceDecl::Decompiled { .. } => None,
     }
 }
 
@@ -231,11 +234,12 @@ fn classpath_member<'a>(
     db: &RootDatabase,
     file: FileId,
     method: &'a hir_ty::MethodData,
-) -> Option<(&'a hir_expand::name::Name, &'a str, hir::LibraryId)> {
+) -> Option<(&'a hir_expand::name::Name, &'a str, jvm_index::LibraryId)> {
     let owner = method.owner.as_fqn()?;
     let descriptor = method.descriptor.as_deref()?;
     let scope = hir_ty::scope_for_file(db, file);
-    let hir::Resolved::Library(class) = hir::fqn_resolve(db, &scope, owner.as_str())? else {
+    let jvm_index::Resolved::Library(class) = jvm_index::fqn_resolve(db, &scope, owner.as_str())?
+    else {
         return None;
     };
     Some((owner, descriptor, class.library))

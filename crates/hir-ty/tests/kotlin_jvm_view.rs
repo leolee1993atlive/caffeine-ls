@@ -13,8 +13,6 @@
 //! resolve `Int`, `String` and the `kotlin.jvm` annotations hermetically.
 
 use base_db::{FileChange, SourceRoot, SourceRootId};
-use hir::SourceSetId;
-use hir::hir_def::kotlin::item_tree::KotlinItemData;
 use hir_expand::ids::ItemId;
 use hir_ty::kotlin::jvm_view::{
     file_facade_fields, file_facade_members, java_view_fields, java_view_members,
@@ -22,6 +20,8 @@ use hir_ty::kotlin::jvm_view::{
 use hir_ty::{
     Access, FieldData, InvocationContext, MethodData, Ty, all_methods_for_test, member_set,
 };
+use jvm_index::SourceSetId;
+use jvm_index::hir_def::kotlin::item_tree::KotlinItemData;
 use tempfile::TempDir;
 use triomphe::Arc;
 use vfs::{AbsPathBuf, FileId, VfsPath, file_set::FileSet};
@@ -56,33 +56,33 @@ fn fixture(files: &[(&str, &str)]) -> (TestDatabase, FileId) {
     change.apply(&mut db);
 
     let source_set = SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         jdk.lib,
-        hir::LibraryInfo::new(
-            hir::LibraryKind::Jar,
+        jvm_index::LibraryInfo::new(
+            jvm_index::LibraryKind::Jar,
             AbsPathBuf::assert_utf8(jdk.jar.as_std_path().to_owned()),
         ),
     );
     data.libraries.insert(
         stdlib_id,
-        hir::LibraryInfo::new(hir::LibraryKind::Jar, stdlib_path),
+        jvm_index::LibraryInfo::new(jvm_index::LibraryKind::Jar, stdlib_path),
     );
     data.libraries.insert(
         interop_id,
-        hir::LibraryInfo::new(hir::LibraryKind::Jar, interop_path),
+        jvm_index::LibraryInfo::new(jvm_index::LibraryKind::Jar, interop_path),
     );
     data.jdk_libraries.push(jdk.lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath {
+        Arc::new(jvm_index::Classpath {
             entries: vec![
-                hir::ClasspathEntry::Library(jdk.lib),
-                hir::ClasspathEntry::Library(stdlib_id),
-                hir::ClasspathEntry::Library(interop_id),
+                jvm_index::ClasspathEntry::Library(jdk.lib),
+                jvm_index::ClasspathEntry::Library(stdlib_id),
+                jvm_index::ClasspathEntry::Library(interop_id),
             ],
         }),
     );
@@ -97,7 +97,7 @@ fn fixture(files: &[(&str, &str)]) -> (TestDatabase, FileId) {
         SourceRootId(0),
         AbsPathBuf::assert_utf8(dir.path().to_string_lossy().to_string().into()),
     );
-    hir::set_project_graph(&mut db, data);
+    jvm_index::set_project_graph(&mut db, data);
     // The database outlives the fixtures; their jars are read lazily.
     std::mem::forget(dir);
     jdk.keep_alive();
@@ -107,13 +107,15 @@ fn fixture(files: &[(&str, &str)]) -> (TestDatabase, FileId) {
 /// The scope a *Java* caller of these declarations reads them from: Java and
 /// Kotlin of one module share a source set, and the Java layer's *external*
 /// invocation context is the one `jls_interop.rs` gives a Java body.
-fn java_scope(db: &TestDatabase, file: FileId) -> hir::ResolutionScope {
-    hir::ResolutionScope::SourceSet(hir::source_set_for_file(db, file).expect("a source set"))
+fn java_scope(db: &TestDatabase, file: FileId) -> jvm_index::ResolutionScope {
+    jvm_index::ResolutionScope::SourceSet(
+        jvm_index::source_set_for_file(db, file).expect("a source set"),
+    )
 }
 
 /// The item of the classifier `name` in `file`.
 fn class_item(db: &TestDatabase, file: FileId, name: &str) -> ItemId {
-    let tree = hir::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file).expect("a Kotlin file");
     for (id, data) in tree.items.iter() {
         if let KotlinItemData::Class(class) = data
             && class.name.as_str() == name
@@ -129,7 +131,7 @@ fn class_item(db: &TestDatabase, file: FileId, name: &str) -> ItemId {
 /// access, `static`, `final`, `abstract`, the return type, the name and the
 /// erased parameter list.
 fn methods(db: &TestDatabase, file: FileId, class: &str, names: &[&str]) -> Vec<String> {
-    let source = hir::SourceClass {
+    let source = jvm_index::SourceClass {
         file,
         item: class_item(db, file, class),
     };
@@ -171,13 +173,13 @@ class Exposed(@JvmField vararg val values: String)
         methods(&db, file, "Words", &["setValues"]),
         vec!["public final void setValues(java.lang.String[])"]
     );
-    let source = hir::SourceClass {
+    let source = jvm_index::SourceClass {
         file,
         item: class_item(&db, file, "Exposed"),
     };
     let fields = java_view_fields(&db, source, &[], "values");
     assert_eq!(fields[0].ty.display(&db).to_string(), "java.lang.String[]");
-    let source = hir::SourceClass {
+    let source = jvm_index::SourceClass {
         file,
         item: class_item(&db, file, "Numbers"),
     };
@@ -254,7 +256,7 @@ fn access(access: Access) -> &'static str {
 }
 
 fn fields(db: &TestDatabase, file: FileId, class: &str, names: &[&str]) -> Vec<String> {
-    let source = hir::SourceClass {
+    let source = jvm_index::SourceClass {
         file,
         item: class_item(db, file, class),
     };
@@ -438,7 +440,7 @@ fn a_classifiers_kind_is_the_kotlin_declaration() {
         ("Single", "f", false),
         ("Normal", "f", false),
     ] {
-        let source = hir::SourceClass {
+        let source = jvm_index::SourceClass {
             file,
             item: class_item(&db, file, class),
         };

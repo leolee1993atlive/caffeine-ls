@@ -73,27 +73,27 @@ impl ClassKey {
     pub fn of(tree: &ItemTree, file: FileId, item: ItemId) -> ClassKey {
         match crate::java::resolve::canonical_class_fqn(tree, item) {
             Some(fqn) => ClassKey::Named(fqn),
-            None => ClassKey::Local(hir::SourceClass { file, item }),
+            None => ClassKey::Local(jvm_index::SourceClass { file, item }),
         }
     }
 
     /// The key of a resolved class: a source class is keyed by its declaration
     /// (which keeps a *local* one identified), a library class by its binary
     /// name ([JVMS §4.2]).
-    pub fn of_resolved(db: &dyn TyDatabase, resolved: &hir::Resolved) -> ClassKey {
+    pub fn of_resolved(db: &dyn TyDatabase, resolved: &jvm_index::Resolved) -> ClassKey {
         match resolved {
             // The name is read from the class's *source*, never from the Java
             // item tree: a Kotlin class has none
             // ([`crate::java::resolve::source_class_fqn_of`]).
-            hir::Resolved::Source(class) => {
+            jvm_index::Resolved::Source(class) => {
                 match crate::java::resolve::source_class_fqn_of(db, *class) {
                     Some(fqn) => ClassKey::Named(fqn),
                     None => ClassKey::Local(*class),
                 }
             }
             // A facade is keyed by the name the compiler gives it.
-            hir::Resolved::Facade { fqn, .. } => ClassKey::Named(fqn.clone()),
-            hir::Resolved::Library(_) => ClassKey::Named(resolved.fqn(db).as_name().clone()),
+            jvm_index::Resolved::Facade { fqn, .. } => ClassKey::Named(fqn.clone()),
+            jvm_index::Resolved::Library(_) => ClassKey::Named(resolved.fqn(db).as_name().clone()),
         }
     }
 
@@ -147,7 +147,7 @@ impl ClassKey {
     }
 
     /// The declaration a *source* class names, `None` for a classpath class.
-    pub fn source(&self) -> Option<hir::SourceClass> {
+    pub fn source(&self) -> Option<jvm_index::SourceClass> {
         match self {
             ClassKey::Named(_) => None,
             ClassKey::Local(class) => Some(*class),
@@ -205,18 +205,18 @@ pub fn access_context(db: &dyn TyDatabase, file: FileId, item: ItemId) -> Invoca
 /// parameterized outer is not generic either.
 pub fn class_declares_type_params(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<bool> {
     let (fqn, _) = ty.as_reference(db)?;
-    match hir::fqn_resolve(db, scope, fqn.as_str()) {
-        Some(hir::Resolved::Library(class)) => {
-            hir::class_generic_info(db, &hir::Resolved::Library(class))
+    match jvm_index::fqn_resolve(db, scope, fqn.as_str()) {
+        Some(jvm_index::Resolved::Library(class)) => {
+            jvm_index::class_generic_info(db, &jvm_index::Resolved::Library(class))
                 .map(|info| !info.type_params.is_empty())
         }
         // A Kotlin file's facade declares none.
-        Some(hir::Resolved::Facade { .. }) => Some(false),
-        Some(hir::Resolved::Source(source)) => {
+        Some(jvm_index::Resolved::Facade { .. }) => Some(false),
+        Some(jvm_index::Resolved::Source(source)) => {
             let tree = hir_def::java::plugin::tree(db, source.file);
             match crate::java::resolve::item_data(&tree, source.item) {
                 Some(hir_def::java::item_tree::ItemData::Class(d)) => {
@@ -241,7 +241,7 @@ pub fn class_declares_type_params(
 /// type parameters are kept — [`pick_method`] instantiates them.
 pub(crate) fn source_class_methods(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
     args: Vec<Ty>,
     name: &str,
 ) -> Vec<MethodData> {
@@ -781,7 +781,7 @@ impl From<Ty> for PolyArg {
 /// arity invocation rules of [§15.12.2.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-15.html#jls-15.12.2.4).
 fn instantiate(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     method: &MethodData,
     args: &[PolyArg],
     phase: InvocationPhase,
@@ -1014,7 +1014,7 @@ fn instantiate(
 /// than `<T>`.
 pub(crate) fn more_specific(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     m1: &MethodData,
     m2: &MethodData,
     variable_arity: bool,
@@ -1148,7 +1148,7 @@ pub(crate) fn more_specific(
 /// above cannot compare them.
 fn functional_interface_specificity(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     m1: &MethodData,
     m2: &MethodData,
 ) -> Option<bool> {
@@ -1214,7 +1214,7 @@ fn functional_interface_specificity(
 /// {char, short, byte}).
 pub(crate) fn choose_most_specific(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     candidates: &[(MethodData, MethodData)],
     variable_arity: bool,
 ) -> Option<MethodData> {
@@ -1284,7 +1284,7 @@ pub(crate) fn choose_most_specific(
 /// when the call is a poly expression.
 pub fn pick_method(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     args: &[PolyArg],
@@ -1361,7 +1361,7 @@ pub fn pick_method(
 /// instantiated with `args`.
 pub(crate) fn source_class_fields(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
     args: Vec<Ty>,
     name: &str,
 ) -> Vec<FieldData> {

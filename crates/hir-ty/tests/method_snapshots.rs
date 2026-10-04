@@ -43,7 +43,7 @@ snapshot! {
         let fixture = common::jdk_fixture();
         let mut db = TestDatabase::new();
         common::register_jdk(&mut db, &fixture);
-        let scope = hir::ResolutionScope::Classpath(vec![fixture.lib]);
+        let scope = jvm_index::ResolutionScope::Classpath(vec![fixture.lib]);
         let mut out = Vec::new();
         for (label, receiver, name) in [
             ("List<String>", l(&db, vec![str(&db)]), "add"),

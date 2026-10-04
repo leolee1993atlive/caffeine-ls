@@ -1,6 +1,6 @@
 //! Salsa glue of the type database.
 //!
-//! [`TyDatabase`] extends [`hir::HirDatabase`] with everything the type layer
+//! [`TyDatabase`] extends [`jvm_index::HirDatabase`] with everything the type layer
 //! needs. Heavy per-item work — type resolution, method parameter lowering,
 //! body inference and the access-control context of a call site — is memoized
 //! as tracked queries keyed on the interned [`ItemKey`], so repeated lookups of
@@ -55,7 +55,7 @@ pub(crate) fn local_decl_sites_query(
 ) -> Arc<FxHashMap<ItemId, resolve::LocalDeclSite>> {
     let file_id = *file.file_id(db);
     let tree = hir_def::java::plugin::tree(db, file_id);
-    let bodies = hir::file_body_tree(db, file_id);
+    let bodies = jvm_index::file_body_tree(db, file_id);
     Arc::new(resolve::local_decl_sites(&tree, &bodies, file_id))
 }
 
@@ -86,7 +86,7 @@ pub(crate) fn deprecated_enclosing_query(
     fn walk(
         db: &dyn TyDatabase,
         file_id: FileId,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         tree: &hir_def::java::item_tree::ItemTree,
         id: ItemId,
         inherited: Option<crate::jvm::deprecation::Deprecation>,
@@ -289,7 +289,7 @@ pub(crate) fn module_diagnostics_query(
 
 /// The source-level diagnostics of `file`: every construct gated on a Java
 /// source level newer than the one `file`'s source set declares. Memoized per
-/// file; reading the level through [`hir::language_level_for_file`] makes the
+/// file; reading the level through [`jvm_index::language_level_for_file`] makes the
 /// memo invalidate on a workspace reload at a different level. See
 /// [`crate::java::level_check::level_diagnostics_impl`].
 #[salsa::tracked(returns(clone))]

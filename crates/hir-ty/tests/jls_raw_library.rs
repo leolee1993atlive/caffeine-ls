@@ -6,9 +6,9 @@
 mod common;
 
 use common::{ClassSpec, TestDatabase, class_sig, class_with_methods_access_sig};
-use hir::{LibraryInfo, LibraryKind};
 use hir_def::java::item_tree::ItemData;
 use hir_ty::{DeclDiagnostic, TypeError};
+use jvm_index::{LibraryInfo, LibraryKind};
 use vfs::{AbsPathBuf, FileId};
 
 fn with_library(
@@ -24,8 +24,8 @@ fn with_library(
         AbsPathBuf::assert_utf8(extra.path.as_std_path().to_owned()),
     );
     let classpath = vec![
-        hir::ClasspathEntry::Library(fixture.lib),
-        hir::ClasspathEntry::Library(extra.lib),
+        jvm_index::ClasspathEntry::Library(fixture.lib),
+        jvm_index::ClasspathEntry::Library(extra.lib),
     ];
     common::register_source_set_classpath(
         &mut db,

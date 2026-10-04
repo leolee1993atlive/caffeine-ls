@@ -93,7 +93,7 @@ pub fn annotation_target(
         item,
         scope: &scope,
         resolver: &resolver,
-        bodies: hir::file_body_tree(db, file),
+        bodies: jvm_index::file_body_tree(db, file),
     };
     resolve_in_annotation(&cx, &annotation, offset)
 }
@@ -105,7 +105,7 @@ struct NavCtx<'a> {
     db: &'a dyn TyDatabase,
     file: FileId,
     item: Option<ItemId>,
-    scope: &'a hir::ResolutionScope,
+    scope: &'a jvm_index::ResolutionScope,
     resolver: &'a Resolver,
     bodies: Arc<BodyTree>,
 }
@@ -453,7 +453,7 @@ fn annotation_name(annotation: &SyntaxNode<Lang>) -> Option<Name> {
 fn element_target(cx: &NavCtx<'_>, annotation: &Name, element: &Name) -> Option<AnnotationTarget> {
     let fqn = candidate_fqns(cx.resolver, annotation)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(cx.db, cx.scope, candidate.as_str()).is_some())?;
+        .find(|candidate| jvm_index::fqn_resolve(cx.db, cx.scope, candidate.as_str()).is_some())?;
     if !is_annotation_interface(cx.db, cx.scope, &fqn) {
         return None;
     }
@@ -520,24 +520,27 @@ fn type_target(cx: &NavCtx<'_>, text: &str) -> Option<AnnotationTarget> {
 
 /// Whether `fqn` denotes an annotation interface ([JLS §9.6]) — the only
 /// declaration kind that has annotation elements.
-fn is_annotation_interface(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn: &Name) -> bool {
-    match hir::fqn_resolve(db, scope, fqn.as_str()) {
-        Some(hir::Resolved::Source(class)) => matches!(
+fn is_annotation_interface(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    fqn: &Name,
+) -> bool {
+    match jvm_index::fqn_resolve(db, scope, fqn.as_str()) {
+        Some(jvm_index::Resolved::Source(class)) => matches!(
             hir_def::java::plugin::tree(db, class.file).data(class.item),
             ItemData::Annotation(_)
         ),
         // A Kotlin file's facade is no annotation interface.
-        Some(hir::Resolved::Facade { .. }) => false,
-        Some(hir::Resolved::Library(resolved)) => {
-            hir::class_record(db, &resolved).is_some_and(|record| {
+        Some(jvm_index::Resolved::Facade { .. }) => false,
+        Some(jvm_index::Resolved::Library(resolved)) => jvm_index::class_record(db, &resolved)
+            .is_some_and(|record| {
                 matches!(
                     record.as_ref(),
-                    hir::ClassOrModuleRecord::Class(class)
-                        if hir::ClassKind::from_flags(class.flags, class.is_record)
-                            == hir::ClassKind::Annotation
+                    jvm_index::ClassOrModuleRecord::Class(class)
+                        if jvm_index::ClassKind::from_flags(class.flags, class.is_record)
+                            == jvm_index::ClassKind::Annotation
                 )
-            })
-        }
+            }),
         None => false,
     }
 }

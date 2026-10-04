@@ -23,7 +23,11 @@ use crate::{
 /// `java.lang.Object`, keeping the result finite and well-formed (of the many
 /// admissible choices, `Object` is the one the erased candidate set yields
 /// for an unknown candidate).
-pub fn least_upper_bound(db: &dyn TyDatabase, scope: &hir::ResolutionScope, types: &[Ty]) -> Ty {
+pub fn least_upper_bound(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    types: &[Ty],
+) -> Ty {
     let object = Ty::reference(db, "java.lang.Object", Vec::new());
     if types.is_empty() {
         return object;
@@ -84,7 +88,7 @@ pub fn least_upper_bound(db: &dyn TyDatabase, scope: &hir::ResolutionScope, type
 /// cycle guard of argument-type-set keys.
 struct Lub<'a> {
     db: &'a dyn TyDatabase,
-    scope: &'a hir::ResolutionScope,
+    scope: &'a jvm_index::ResolutionScope,
     guard: Vec<FxHashSet<TyData>>,
 }
 
@@ -230,15 +234,15 @@ impl Lub<'_> {
         let TyKind::Reference { name, .. } = g.kind(self.db) else {
             return false;
         };
-        let Some(resolved) = hir::fqn_resolve(self.db, self.scope, name.as_str()) else {
+        let Some(resolved) = jvm_index::fqn_resolve(self.db, self.scope, name.as_str()) else {
             return false;
         };
         match resolved {
             // A Kotlin file's facade declares no type parameters.
-            hir::Resolved::Facade { .. } => false,
-            hir::Resolved::Library(_) => hir::class_generic_info(self.db, &resolved)
+            jvm_index::Resolved::Facade { .. } => false,
+            jvm_index::Resolved::Library(_) => jvm_index::class_generic_info(self.db, &resolved)
                 .is_some_and(|info| !info.type_params.is_empty()),
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Source(source) => {
                 // A class of another language has no Java declaration
                 // ([`crate::java::resolve::java_item`]).
                 let Some((tree, item)) = crate::java::resolve::java_item(self.db, source) else {

@@ -111,7 +111,7 @@ impl InvocationContext {
     /// nor in the package of, any `scope` class, so only `public` members are
     /// candidates ([JLS §6.6](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.6)).
     /// Source call sites use [`access_context`] instead.
-    pub fn external(_scope: &hir::ResolutionScope) -> Self {
+    pub fn external(_scope: &jvm_index::ResolutionScope) -> Self {
         Self {
             mode: InvocationMode::Virtual,
             // A fully qualified name that is not a subclass of anything in
@@ -197,7 +197,7 @@ impl InvocationContext {
 /// supertypes' methods. Memoized per (scope, receiver, name, context).
 pub fn member_set(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -217,7 +217,7 @@ pub fn member_set(
 /// access violation.
 pub fn member_set_ignoring_access(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -241,7 +241,7 @@ pub fn member_set_ignoring_access(
 /// ([§9.2], [§9.4.1]), so it applies here as well.
 pub fn all_methods(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     ctx: &InvocationContext,
 ) -> Vec<MethodData> {
@@ -256,7 +256,7 @@ pub fn all_methods(
 /// transforms).
 pub fn all_methods_raw(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     ctx: &InvocationContext,
 ) -> Vec<MethodData> {
@@ -270,7 +270,7 @@ pub fn all_methods_raw(
 /// ([JLS §9.4.1.3](https://docs.oracle.com/javase/specs/jls/se26/html/jls-9.html#jls-9.4.1.3)).
 pub(crate) fn inherited_defaults(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
 ) -> Vec<MethodData> {
     let scope_id = ScopeId::new(db, ScopeKind::from_scope(scope));
@@ -337,7 +337,7 @@ pub(crate) fn member_set_query(
 #[allow(clippy::too_many_arguments)]
 fn member_set_impl(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -663,18 +663,18 @@ fn member_set_impl(
 /// with `Builder<T>`). A non-generic class (`String`) or a parameterized use
 /// (`List<String>`) is not raw, even with empty args in the latter's case the
 /// args are present.
-fn is_raw_use(db: &dyn TyDatabase, scope: &hir::ResolutionScope, receiver: &Ty) -> bool {
+fn is_raw_use(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, receiver: &Ty) -> bool {
     let TyKind::Reference { name, args, .. } = receiver.kind(db) else {
         return false;
     };
     if !args.is_empty() {
         return false;
     }
-    let Some(resolved) = hir::fqn_resolve(db, scope, name.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, scope, name.as_str()) else {
         return false;
     };
     let count = match &resolved {
-        hir::Resolved::Library(_) => {
+        jvm_index::Resolved::Library(_) => {
             crate::lang::classfile().declared_type_param_count(db, &resolved)
         }
         class => crate::lang::for_class(db, class)
@@ -713,7 +713,7 @@ fn same_overriding_signature(a: &MethodData, b: &MethodData) -> bool {
 /// is a value of the functional interface for. Memoized per (scope, type).
 pub fn abstract_methods(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Vec<MethodData> {
     let scope = ScopeId::new(db, ScopeKind::from_scope(scope));
@@ -733,7 +733,7 @@ pub(crate) fn abstract_methods_query(
 /// The non-memoized form of [`abstract_methods`].
 fn abstract_methods_impl(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Vec<MethodData> {
     let scope_id = ScopeId::new(db, ScopeKind::from_scope(scope));
@@ -772,12 +772,12 @@ fn abstract_methods_impl(
         let args = args.clone();
         match resolved {
             // A Kotlin file's facade is no functional interface.
-            hir::Resolved::Facade { .. } => continue,
-            hir::Resolved::Library(class) => {
-                let Some(record) = hir::class_record(db, &class) else {
+            jvm_index::Resolved::Facade { .. } => continue,
+            jvm_index::Resolved::Library(class) => {
+                let Some(record) = jvm_index::class_record(db, &class) else {
                     continue;
                 };
-                let hir::ClassOrModuleStub::Class(stub) = record.as_ref() else {
+                let jvm_index::ClassOrModuleStub::Class(stub) = record.as_ref() else {
                     continue;
                 };
                 let interner = &db.hir_state().interner;
@@ -798,7 +798,7 @@ fn abstract_methods_impl(
             // A source class answers through the JVM view of the language
             // that declares it: an interface's declared abstract members are
             // that language's own ([`crate::lang::JvmMemberSource`]).
-            class @ hir::Resolved::Source(_) => {
+            class @ jvm_index::Resolved::Source(_) => {
                 if let Some(source) = crate::lang::member_source(db, &class) {
                     declarations.extend(source.abstract_methods(db, &class, &args));
                 }
@@ -861,7 +861,7 @@ fn abstract_methods_impl(
 /// it.
 pub fn single_abstract_method(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<MethodData> {
     // §9.8: only an interface — or an annotation type, which is one
@@ -914,12 +914,14 @@ pub fn single_abstract_method(
 /// the callers of this helper expect.
 pub fn class_kind(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<(JvmClassKind, bool)> {
     let resolved = crate::jvm::resolve::reference_class(db, scope, ty)?;
     match &resolved {
-        hir::Resolved::Library(_) => crate::lang::classfile().member_source().kind(db, &resolved),
+        jvm_index::Resolved::Library(_) => {
+            crate::lang::classfile().member_source().kind(db, &resolved)
+        }
         _ => crate::lang::member_source(db, &resolved)?.kind(db, &resolved),
     }
 }
@@ -938,7 +940,7 @@ pub fn class_kind(
 /// `notifyAll()` and the `wait` overloads are `public` and do.
 fn object_member_signature(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     method: &MethodData,
 ) -> bool {
     let object = Ty::reference(db, "java.lang.Object", Vec::new());
@@ -977,7 +979,7 @@ fn class_methods(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) -
     let args = args.clone();
     match resolved {
         // A classfile's members are its record's.
-        hir::Resolved::Library(class) => library_class_methods(db, class, args, name),
+        jvm_index::Resolved::Library(class) => library_class_methods(db, class, args, name),
         // A source class — a facade included — answers through the JVM view of
         // the language that declares it (a Kotlin class's JVM-visible members
         // are the ones its compiler emits; a facade's are the file's top-level
@@ -1032,15 +1034,15 @@ pub(crate) fn source_top_level(package: Option<&str>, fqn: &str) -> String {
 /// instead follows the leftmost bound, including bounds naming other parameters.
 fn library_type_erasure<'a>(
     db: &dyn TyDatabase,
-    mut tyref: &'a hir::TypeRef<hir::Symbol>,
-    class_params: &'a [classfile::stub::TypeParameter<hir::Symbol>],
-    mut method_params: &'a [classfile::stub::TypeParameter<hir::Symbol>],
+    mut tyref: &'a jvm_index::TypeRef<jvm_index::Symbol>,
+    class_params: &'a [classfile::stub::TypeParameter<jvm_index::Symbol>],
+    mut method_params: &'a [classfile::stub::TypeParameter<jvm_index::Symbol>],
 ) -> Ty {
     let mut remaining = class_params.len() + method_params.len();
     let mut dimensions = 0;
     let mut erased = loop {
         match tyref {
-            hir::TypeRef::TypeVariable(name) => {
+            jvm_index::TypeRef::TypeVariable(name) => {
                 // A bound chain can visit each declaration only once. F-bounds
                 // terminate at their reference type without traversing arguments.
                 if remaining == 0 {
@@ -1065,11 +1067,11 @@ fn library_type_erasure<'a>(
                 };
                 tyref = bound;
             }
-            hir::TypeRef::Array(inner) => {
+            jvm_index::TypeRef::Array(inner) => {
                 dimensions += 1;
                 tyref = inner;
             }
-            hir::TypeRef::Reference { name, .. } => {
+            jvm_index::TypeRef::Reference { name, .. } => {
                 break Ty::reference(
                     db,
                     Name::new(db.hir_state().interner.resolve(name)),
@@ -1093,14 +1095,14 @@ fn library_type_erasure<'a>(
 /// ([JLS §18.5.2]).
 pub(crate) fn library_class_methods(
     db: &dyn TyDatabase,
-    class: hir::ResolvedClass,
+    class: jvm_index::ResolvedClass,
     args: Vec<Ty>,
     name: &str,
 ) -> Vec<MethodData> {
-    let Some(record) = hir::class_record(db, &class) else {
+    let Some(record) = jvm_index::class_record(db, &class) else {
         return Vec::new();
     };
-    let hir::ClassOrModuleStub::Class(class) = record.as_ref() else {
+    let jvm_index::ClassOrModuleStub::Class(class) = record.as_ref() else {
         return Vec::new();
     };
     let interner = &db.hir_state().interner;
@@ -1135,8 +1137,8 @@ pub(crate) fn library_class_methods(
     let declaring_package = package_of(&fqn);
     let declaring_top_level = Some(top_level_of(&fqn));
     let declaring_interface = matches!(
-        hir::ClassKind::from_flags(class.flags, class.is_record),
-        hir::ClassKind::Interface | hir::ClassKind::Annotation
+        jvm_index::ClassKind::from_flags(class.flags, class.is_record),
+        jvm_index::ClassKind::Interface | jvm_index::ClassKind::Annotation
     );
 
     let mut out = Vec::new();
@@ -1174,7 +1176,7 @@ pub(crate) fn library_class_methods(
             owner: &owner,
             method: Some((&method_name, &method_names)),
         };
-        let member_lower = |tyref: &hir::TypeRef<hir::Symbol>| {
+        let member_lower = |tyref: &jvm_index::TypeRef<jvm_index::Symbol>| {
             crate::jvm::resolve::ty_from_library_signature(db, tyref, &signature)
                 .substitute(db, &binding)
         };
@@ -1216,7 +1218,7 @@ pub(crate) fn library_class_methods(
         // raw instance members are erased; static members retain their generics.
         // The bounded erasure is also the signature compared for implementation
         // ([§8.4.8.1](https://docs.oracle.com/javase/specs/jls/se26/html/jls-8.html#jls-8.4.8.1)).
-        let member_type = |tyref: &hir::TypeRef<hir::Symbol>| {
+        let member_type = |tyref: &jvm_index::TypeRef<jvm_index::Symbol>| {
             if raw_instance {
                 library_type_erasure(db, tyref, &class.type_params, &method.type_params)
             } else {
@@ -1268,7 +1270,7 @@ pub(crate) fn library_class_methods(
 /// are searched instead. `None` when no field is found.
 pub fn pick_field(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -1284,7 +1286,7 @@ pub fn pick_field(
 /// inference layer as `IllegalAccess`.
 pub fn pick_field_ignoring_access(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -1297,7 +1299,7 @@ pub fn pick_field_ignoring_access(
 /// the receiver, filtered by accessibility only when `strict_access` is set.
 fn pick_field_impl(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     receiver: &Ty,
     name: &str,
     ctx: &InvocationContext,
@@ -1376,7 +1378,7 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
     let args = args.clone();
     match resolved {
         // A classfile's fields are its record's.
-        hir::Resolved::Library(class) => library_class_fields(db, class, args, name),
+        jvm_index::Resolved::Library(class) => library_class_fields(db, class, args, name),
         // A source class answers through the JVM view of its own language (a
         // facade's fields are the file's top-level `const val`s).
         class => crate::lang::member_source(db, &class)
@@ -1388,14 +1390,14 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
 /// parameters bound to `args`.
 pub(crate) fn library_class_fields(
     db: &dyn TyDatabase,
-    class: hir::ResolvedClass,
+    class: jvm_index::ResolvedClass,
     args: Vec<Ty>,
     name: &str,
 ) -> Vec<FieldData> {
-    let Some(record) = hir::class_record(db, &class) else {
+    let Some(record) = jvm_index::class_record(db, &class) else {
         return Vec::new();
     };
-    let hir::ClassOrModuleStub::Class(class) = record.as_ref() else {
+    let jvm_index::ClassOrModuleStub::Class(class) = record.as_ref() else {
         return Vec::new();
     };
     let interner = &db.hir_state().interner;

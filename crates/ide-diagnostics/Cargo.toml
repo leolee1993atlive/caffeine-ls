@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
-hir.workspace = true
+jvm-index.workspace = true
 hir-expand.workspace = true
 hir-ty.workspace = true
 ide-db.workspace = true

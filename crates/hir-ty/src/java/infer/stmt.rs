@@ -921,7 +921,8 @@ impl InferCtx<'_> {
                         && !resource_ty.is_error(self.db)
                         && (match resource_ty.kind(self.db) {
                             TyKind::Reference { name, .. } => {
-                                hir::fqn_resolve(self.db, &self.scope, name.as_str()).is_some()
+                                jvm_index::fqn_resolve(self.db, &self.scope, name.as_str())
+                                    .is_some()
                             }
                             _ => true,
                         })

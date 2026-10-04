@@ -20,7 +20,7 @@ use crate::jvm::ids::ItemId;
 use crate::jvm::stubs::ClassKind;
 
 /// Identifies a class for the light-class view: a workspace source item or a
-/// library entry. The `jvm`-namespace analog of `hir::Resolved`.
+/// library entry. The `jvm`-namespace analog of `jvm_index::Resolved`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LightClassId {
     /// A class declared by a workspace source file.

@@ -23,7 +23,7 @@ struct Member {
 /// https://docs.oracle.com/javase/specs/jls/se25/html/jls-8.html#jls-8.5
 struct Lookup<'a> {
     db: &'a dyn TyDatabase,
-    scope: &'a hir::ResolutionScope,
+    scope: &'a jvm_index::ResolutionScope,
     active: FxHashSet<(Name, Name)>,
 }
 
@@ -102,11 +102,11 @@ impl Lookup<'_> {
     }
 
     fn declared(&self, owner: &Name, candidate: &Name) -> Option<Member> {
-        let resolved = hir::fqn_resolve(self.db, self.scope, candidate.as_str())?;
+        let resolved = jvm_index::fqn_resolve(self.db, self.scope, candidate.as_str())?;
         let (name, access, package, top_level) = match resolved {
-            hir::Resolved::Library(class) => {
-                let record = hir::class_record(self.db, &class)?;
-                let hir::ClassOrModuleStub::Class(record) = &*record else {
+            jvm_index::Resolved::Library(class) => {
+                let record = jvm_index::class_record(self.db, &class)?;
+                let jvm_index::ClassOrModuleStub::Class(record) = &*record else {
                     return None;
                 };
                 let name = Name::new(self.db.hir_state().interner.resolve(&record.fqn));
@@ -114,7 +114,7 @@ impl Lookup<'_> {
                 let top_level = top_level_of(name.as_str());
                 (name, Access::from_flags(record.flags), package, top_level)
             }
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(self.db, source.file);
                 let data = item_data(&tree, source.item)?;
                 let visibility = match data {
@@ -140,12 +140,12 @@ impl Lookup<'_> {
                         JavaVisibility::Private => Access::Private,
                     }
                 };
-                let name = hir::source_class_fqn(self.db, source.file, source.item)?;
+                let name = jvm_index::source_class_fqn(self.db, source.file, source.item)?;
                 let package = tree.package.as_ref().map(|p| p.as_str().to_owned());
                 let top_level = source_top_level(package.as_deref(), name.as_str());
                 (name, access, package, top_level)
             }
-            hir::Resolved::Facade { .. } => return None,
+            jvm_index::Resolved::Facade { .. } => return None,
         };
         Some(Member {
             name,
@@ -157,11 +157,13 @@ impl Lookup<'_> {
     }
 
     fn package(&self, owner: &Name) -> Option<String> {
-        match hir::fqn_resolve(self.db, self.scope, owner.as_str())? {
-            hir::Resolved::Source(source) => hir_def::java::plugin::tree(self.db, source.file)
-                .package
-                .as_ref()
-                .map(|p| p.as_str().to_owned()),
+        match jvm_index::fqn_resolve(self.db, self.scope, owner.as_str())? {
+            jvm_index::Resolved::Source(source) => {
+                hir_def::java::plugin::tree(self.db, source.file)
+                    .package
+                    .as_ref()
+                    .map(|p| p.as_str().to_owned())
+            }
             _ => owner.as_str().rsplit_once('.').map(|(p, _)| p.to_owned()),
         }
     }
@@ -170,15 +172,15 @@ impl Lookup<'_> {
     // typing query: resolving `class C extends C.Missing` otherwise re-enters
     // type resolution through supertypes indefinitely (JLS §8.1.4).
     fn parents(&mut self, owner: &Name) -> Vec<Name> {
-        let Some(resolved) = hir::fqn_resolve(self.db, self.scope, owner.as_str()) else {
+        let Some(resolved) = jvm_index::fqn_resolve(self.db, self.scope, owner.as_str()) else {
             return Vec::new();
         };
         match resolved {
-            hir::Resolved::Library(_) => hir::super_types(self.db, &resolved)
+            jvm_index::Resolved::Library(_) => jvm_index::super_types(self.db, &resolved)
                 .iter()
                 .map(|name| Name::new(self.db.hir_state().interner.resolve(name)))
                 .collect(),
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(self.db, source.file);
                 let Some(data) = item_data(&tree, source.item) else {
                     return Vec::new();
@@ -217,7 +219,7 @@ impl Lookup<'_> {
                 }
                 parents
             }
-            hir::Resolved::Facade { .. } => Vec::new(),
+            jvm_index::Resolved::Facade { .. } => Vec::new(),
         }
     }
 }
@@ -228,7 +230,7 @@ impl Lookup<'_> {
 /// https://docs.oracle.com/javase/specs/jls/se25/html/jls-6.html#jls-6.5.5.2
 pub(super) fn resolve(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     candidate: &Name,
 ) -> Vec<Name> {

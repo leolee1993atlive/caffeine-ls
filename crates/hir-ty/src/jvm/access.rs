@@ -48,7 +48,7 @@ pub(crate) fn mode_allows(method: &MethodData, ctx: &InvocationContext) -> bool 
 /// when accessed through the receiver expression of type `receiver`.
 pub(crate) fn is_accessible(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     method: &MethodData,
     receiver: &Ty,
     ctx: &InvocationContext,
@@ -76,7 +76,7 @@ pub(crate) fn is_accessible(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn member_accessible(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     access: Access,
     declaring_package: Option<&str>,
     owner: &ClassKey,
@@ -181,18 +181,22 @@ pub(crate) fn member_accessible(
 /// info is unavailable.
 pub(crate) fn self_type_param_indexes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> Option<Vec<usize>> {
-    let resolved = hir::fqn_resolve(db, scope, fqn)?;
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn)?;
     let params = match resolved {
-        hir::Resolved::Library(_) => hir::class_generic_info(db, &resolved)?.type_params,
-        hir::Resolved::Source(_) | hir::Resolved::Facade { .. } => return Some(Vec::new()),
+        jvm_index::Resolved::Library(_) => {
+            jvm_index::class_generic_info(db, &resolved)?.type_params
+        }
+        jvm_index::Resolved::Source(_) | jvm_index::Resolved::Facade { .. } => {
+            return Some(Vec::new());
+        }
     };
     fn mention(
-        bound: &classfile::stub::TypeRef<hir::Symbol>,
+        bound: &classfile::stub::TypeRef<jvm_index::Symbol>,
         self_fqn: &str,
-        interner: &dyn hir::HirDatabase,
+        interner: &dyn jvm_index::HirDatabase,
     ) -> bool {
         match bound {
             classfile::stub::TypeRef::Reference { name, generic_args } => {

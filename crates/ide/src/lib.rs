@@ -3,16 +3,16 @@ use std::path::Path;
 
 use ide_db::{RootDatabase, base_db::salsa::Cancelled, line_index};
 
-pub use hir::{
-    Classpath, ClasspathEntry, LibraryInfo, LibraryKind, LibrarySources, ProjectGraphData,
-    SourceSetId, SourceSymbolKind,
-};
 pub use ide_db::{
     Severity,
     base_db::LanguageKind,
     line_index::{LineCol, LineIndex},
 };
 pub use ide_diagnostics::Diagnostic;
+pub use jvm_index::{
+    Classpath, ClasspathEntry, LibraryInfo, LibraryKind, LibrarySources, ProjectGraphData,
+    SourceSetId, SourceSymbolKind,
+};
 pub use project_model::LibraryId;
 use rustc_hash::FxHashSet;
 pub use syntax::{DiagnosticCode, JavaDiagnosticCode, KotlinDiagnosticCode};
@@ -70,7 +70,7 @@ impl AnalysisHost {
     /// could be enabled; without it every one of them is re-derived per
     /// session.
     pub fn enable_persistent_stub_cache(&self, cache_dir: &Path) -> bool {
-        hir::enable_persistent_stub_cache(&self.db, cache_dir)
+        jvm_index::enable_persistent_stub_cache(&self.db, cache_dir)
     }
 
     /// The registered libraries (those reachable from some source set), in
@@ -78,7 +78,7 @@ impl AnalysisHost {
     /// host database directly, without a snapshot: the caller needs the ids
     /// only to hand out to [`Self::library_warmup`].
     pub fn registered_libraries(&self) -> Vec<LibraryId> {
-        hir::registered_libraries(&self.db)
+        jvm_index::registered_libraries(&self.db)
     }
 
     /// A cloneable handle to the session's library-index state, for background
@@ -104,7 +104,7 @@ impl AnalysisHost {
 /// snapshot, so a long archive parse cannot block the server's next write.
 #[derive(Clone)]
 pub struct LibraryWarmup {
-    state: Arc<hir::HirState>,
+    state: Arc<jvm_index::HirState>,
 }
 
 impl LibraryWarmup {
@@ -113,13 +113,13 @@ impl LibraryWarmup {
     /// does not pay the archive parse. A library a reload has already dropped
     /// is skipped.
     pub fn warm(&self, id: LibraryId) {
-        hir::warmup_library(&self.state, id);
+        jvm_index::warmup_library(&self.state, id);
     }
 
     /// Drops persistent stub-cache entries of libraries `live` does not name.
     /// Called once a warmup pass finished.
     pub fn prune(&self, live: &FxHashSet<LibraryId>) {
-        hir::prune_stub_cache(&self.state, live);
+        jvm_index::prune_stub_cache(&self.state, live);
     }
 }
 
@@ -169,7 +169,7 @@ impl Analysis {
     /// whose source root is not loaded yet answers `Unknown` exactly as its
     /// other HIR queries do.
     pub fn file_language(&self, file_id: FileId) -> ide_db::base_db::LanguageKind {
-        hir::file_item_tree(&self.db, file_id).language()
+        jvm_index::file_item_tree(&self.db, file_id).language()
     }
 
     pub fn syntax_diagnostics(&self, file_id: FileId) -> Cancellable<Vec<Diagnostic>> {
@@ -283,7 +283,7 @@ impl Analysis {
     pub fn item_ty(
         &self,
         file_id: FileId,
-        item: hir::hir_def::jvm::ids::ItemId,
+        item: jvm_index::hir_def::jvm::ids::ItemId,
     ) -> Cancellable<String> {
         self.with_db(|db| symbols::item_ty(db, file_id, item))
     }
@@ -292,7 +292,7 @@ impl Analysis {
     pub fn method_params(
         &self,
         file_id: FileId,
-        item: hir::hir_def::jvm::ids::ItemId,
+        item: jvm_index::hir_def::jvm::ids::ItemId,
     ) -> Cancellable<Arc<[String]>> {
         self.with_db(|db| symbols::method_params(db, file_id, item))
     }

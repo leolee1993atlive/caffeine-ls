@@ -56,7 +56,7 @@ impl InferCtx<'_> {
         self.resolver
             .push_local_type(crate::java::resolve::ScopedLocalType {
                 name,
-                class: hir::SourceClass {
+                class: jvm_index::SourceClass {
                     file: self.file,
                     item,
                 },

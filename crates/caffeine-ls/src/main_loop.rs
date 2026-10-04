@@ -6,12 +6,12 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use crossbeam_channel::Receiver;
-use hir::hir_expand::name::Name;
 use ide::{
     Change, Classpath, ClasspathEntry as GraphClasspathEntry, LibraryId, LibraryInfo, LibraryKind,
     LibrarySources, ProjectGraphData, SourceSetId,
 };
 use ide_db::base_db::{SourceRoot, SourceRootId};
+use jvm_index::hir_expand::name::Name;
 use lsp_server::{Connection, ErrorCode, Notification, Request};
 use lsp_types::*;
 use project_model::{ClasspathEntry, SyncError, SyncPhase, SyncProgress};
@@ -1332,7 +1332,7 @@ impl GlobalState {
         data.library_source_roots = library_source_roots.clone();
         // The decompiled-output roots, likewise empty when no decompiler is
         // configured — which is what turns the fallback in
-        // `hir::library_source_decl` off.
+        // `jvm_index::library_source_decl` off.
         data.library_decompiled = decompiled.clone();
         data.library_decompiled_roots = library_decompiled_roots.clone();
 

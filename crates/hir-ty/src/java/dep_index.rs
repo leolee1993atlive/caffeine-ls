@@ -61,7 +61,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
     // like `interface I extends A, B` where `A` and `B` both extend `C`)
     // expands it once. The pair also bounds broken self-cyclic source
     // (`class A extends A`), which would otherwise loop forever.
-    let mut queue: Vec<hir::SourceClass> = Vec::new();
+    let mut queue: Vec<jvm_index::SourceClass> = Vec::new();
     let mut visited: FxHashSet<(FileId, ItemId)> = FxHashSet::default();
 
     // 1. The reference types of the file's memoized HIR: declared types,
@@ -78,7 +78,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
         // which they necessarily are, since `file` resolves the class itself.
         // The closure borrows `out`/`queue`/`visited` only for this pass; the
         // work-queue loop below needs its own mutable borrow of `queue`.
-        let mut record = |name: &Name, local: Option<hir::SourceClass>| {
+        let mut record = |name: &Name, local: Option<jvm_index::SourceClass>| {
             record_source(
                 db,
                 file,
@@ -115,7 +115,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
     //    resolution even when nothing in `file` names the supertype directly.
     for (id, data) in all_items_data(&tree) {
         if is_class_like(data) {
-            let source = hir::SourceClass { file, item: id };
+            let source = jvm_index::SourceClass { file, item: id };
             for super_ty in java_source_supertypes(db, source, &[]) {
                 super_ty.for_each_reference(db, &mut |name, local| {
                     record_source(
@@ -169,17 +169,19 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
 fn record_source(
     db: &dyn TyDatabase,
     file: FileId,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
-    local: Option<hir::SourceClass>,
+    local: Option<jvm_index::SourceClass>,
     out: &mut FxHashSet<FileId>,
-    queue: &mut Vec<hir::SourceClass>,
+    queue: &mut Vec<jvm_index::SourceClass>,
     visited: &mut FxHashSet<(FileId, ItemId)>,
 ) {
     if local.is_some() {
         return;
     }
-    if let Some(hir::Resolved::Source(source)) = hir::fqn_resolve(db, scope, name.as_str()) {
+    if let Some(jvm_index::Resolved::Source(source)) =
+        jvm_index::fqn_resolve(db, scope, name.as_str())
+    {
         // `file`'s own declarations are not a *cross*-file dependency.
         if source.file == file {
             return;
@@ -199,7 +201,7 @@ fn record_source(
 /// appearing in this set or being reachable through [`file_resolved_deps`].
 pub(crate) fn file_dependency_refs_impl(db: &dyn TyDatabase, file: FileId) -> FxHashSet<Name> {
     let tree = hir_def::java::plugin::tree(db, file);
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let mut out: FxHashSet<Name> = FxHashSet::default();
 
     // Imports: the full name and its leaf simple name, so a symbol added or

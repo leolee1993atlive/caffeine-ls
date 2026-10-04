@@ -9,8 +9,8 @@
 #[macro_use]
 mod common;
 
-use hir::{LibraryId, LibraryInfo, LibraryKind};
 use hir_ty::{Ty, least_upper_bound};
+use jvm_index::{LibraryId, LibraryInfo, LibraryKind};
 use tempfile::TempDir;
 use vfs::AbsPathBuf;
 
@@ -72,7 +72,7 @@ fn check_lub(classes: Vec<common::ClassSpec<'static>>, samples: &[(&str, &[TyBui
     build_jar(&jar, &classes);
     let lib = LibraryId::from_file_path(jar.as_std_path()).unwrap();
     let mut db = TestDatabase::new();
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         lib,
         LibraryInfo::new(
@@ -81,8 +81,8 @@ fn check_lub(classes: Vec<common::ClassSpec<'static>>, samples: &[(&str, &[TyBui
         ),
     );
     data.jdk_libraries.push(lib);
-    hir::set_project_graph(&mut db, data);
-    let scope = hir::ResolutionScope::Classpath(vec![lib]);
+    jvm_index::set_project_graph(&mut db, data);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![lib]);
 
     samples
         .iter()

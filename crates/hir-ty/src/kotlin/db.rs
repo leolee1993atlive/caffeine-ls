@@ -14,9 +14,9 @@
 use triomphe::Arc;
 use vfs::FileId;
 
-use hir::hir_def::kotlin::item_tree::{KotlinItemData, KotlinItemTree};
 use hir_expand::ids::ItemId;
 use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{KotlinItemData, KotlinItemTree};
 
 use super::resolve::KotlinResolver;
 use super::ty::ty_from_type_ref;
@@ -114,7 +114,7 @@ fn guarded<R>(
 pub(crate) fn kotlin_item_ty_query<'db>(db: &'db dyn TyDatabase, key: KotlinItemKey<'db>) -> Ty {
     let file_id = key.file(db);
     let item_id = key.item(db);
-    let tree = hir::file_item_tree(db, file_id);
+    let tree = jvm_index::file_item_tree(db, file_id);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Ty::error(db);
     };
@@ -167,7 +167,7 @@ pub(crate) fn kotlin_item_ty_query<'db>(db: &'db dyn TyDatabase, key: KotlinItem
             if tree.is_local_type(item_id) {
                 Ty::local_reference(
                     db,
-                    hir::SourceClass {
+                    jvm_index::SourceClass {
                         file: file_id,
                         item: item_id,
                     },
@@ -201,7 +201,7 @@ pub(crate) fn kotlin_supertypes_query<'db>(
 ) -> Arc<[Ty]> {
     let file_id = key.file(db);
     let item_id = key.item(db);
-    let tree = hir::file_item_tree(db, file_id);
+    let tree = jvm_index::file_item_tree(db, file_id);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Arc::from(Vec::new());
     };
@@ -222,7 +222,7 @@ pub(crate) fn kotlin_type_params_query<'db>(
 ) -> Arc<[Ty]> {
     let file_id = key.file(db);
     let item_id = key.item(db);
-    let tree = hir::file_item_tree(db, file_id);
+    let tree = jvm_index::file_item_tree(db, file_id);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return Arc::from(Vec::new());
     };
@@ -356,7 +356,7 @@ fn body_value_ty(db: &dyn TyDatabase, file_id: FileId, item_id: ItemId) -> Ty {
     let Some(body) = types.body else {
         return Ty::error(db);
     };
-    let bodies = hir::file_body_tree(db, file_id);
+    let bodies = jvm_index::file_body_tree(db, file_id);
     let Some(&stmt) = bodies.body(body).stmts.first() else {
         return Ty::error(db);
     };
@@ -393,7 +393,7 @@ pub fn type_params(db: &dyn TyDatabase, file_id: FileId, item_id: ItemId) -> Arc
 pub struct FacadeKey<'db> {
     /// The scope whose classpath is scanned.
     #[returns(ref)]
-    pub scope: hir::ResolutionScope,
+    pub scope: jvm_index::ResolutionScope,
     #[returns(ref)]
     pub package: Name,
 }
@@ -413,11 +413,11 @@ pub struct FacadeKey<'db> {
 pub(crate) fn kotlin_facade_classes_query<'db>(
     db: &'db dyn TyDatabase,
     key: FacadeKey<'db>,
-) -> Arc<[hir::Resolved]> {
+) -> Arc<[jvm_index::Resolved]> {
     let scope = key.scope(db).clone();
     let package = key.package(db).clone();
     Arc::from(
-        hir::classes_in_package(db, &scope, &package)
+        jvm_index::classes_in_package(db, &scope, &package)
             .into_iter()
             .filter(|class| is_kotlin_facade(db, class))
             .collect::<Vec<_>>(),
@@ -436,8 +436,8 @@ pub(crate) fn kotlin_facade_classes_query<'db>(
 /// metadata check is what accepts a facade whose name the file chose freely;
 /// this model reads the annotation's *presence* only, since the rest of the
 /// payload is not decoded ([`crate::kotlin::ty`] records the same deviation).
-fn is_kotlin_facade(db: &dyn TyDatabase, class: &hir::Resolved) -> bool {
-    let hir::Resolved::Library(entry) = class else {
+fn is_kotlin_facade(db: &dyn TyDatabase, class: &jvm_index::Resolved) -> bool {
+    let jvm_index::Resolved::Library(entry) = class else {
         // A *source* file's facades are reached by name through the source
         // symbol index ([`super::resolve::KotlinResolver::source_declaration`]),
         // and a facade is not a declaration of its own there.
@@ -461,12 +461,12 @@ fn is_kotlin_facade(db: &dyn TyDatabase, class: &hir::Resolved) -> bool {
 ///
 /// `k = 1` is an ordinary class, which every Kotlin *declaration* compiles to —
 /// which is why the annotation alone is not enough.
-fn class_is_kotlin_facade_metadata(db: &dyn TyDatabase, entry: &hir::ResolvedClass) -> bool {
+fn class_is_kotlin_facade_metadata(db: &dyn TyDatabase, entry: &jvm_index::ResolvedClass) -> bool {
     let interner = &db.hir_state().interner;
-    let Some(record) = hir::class_record(db, entry) else {
+    let Some(record) = jvm_index::class_record(db, entry) else {
         return false;
     };
-    let hir::ClassOrModuleRecord::Class(class) = &*record else {
+    let jvm_index::ClassOrModuleRecord::Class(class) = &*record else {
         return false;
     };
     class.annotations.iter().any(|annotation| {
@@ -499,18 +499,18 @@ fn class_is_kotlin_facade_metadata(db: &dyn TyDatabase, entry: &hir::ResolvedCla
 pub(crate) fn kotlin_facade_name_index_query<'db>(
     db: &'db dyn TyDatabase,
     key: FacadeKey<'db>,
-) -> Arc<rustc_hash::FxHashMap<Name, Vec<hir::Resolved>>> {
+) -> Arc<rustc_hash::FxHashMap<Name, Vec<jvm_index::Resolved>>> {
     let scope = key.scope(db).clone();
     let package = key.package(db).clone();
-    let mut index: rustc_hash::FxHashMap<Name, Vec<hir::Resolved>> = Default::default();
+    let mut index: rustc_hash::FxHashMap<Name, Vec<jvm_index::Resolved>> = Default::default();
     for facade in facade_classes(db, &scope, &package).iter() {
-        let hir::Resolved::Library(facade) = facade else {
+        let jvm_index::Resolved::Library(facade) = facade else {
             continue;
         };
-        let Some(record) = hir::class_record(db, facade) else {
+        let Some(record) = jvm_index::class_record(db, facade) else {
             continue;
         };
-        let hir::ClassOrModuleRecord::Class(class) = &*record else {
+        let jvm_index::ClassOrModuleRecord::Class(class) = &*record else {
             continue;
         };
         let interner = &db.hir_state().interner;
@@ -524,7 +524,7 @@ pub(crate) fn kotlin_facade_name_index_query<'db>(
             index
                 .entry(Name::new(interner.resolve(&method.name)))
                 .or_default()
-                .push(hir::Resolved::Library(facade.clone()));
+                .push(jvm_index::Resolved::Library(facade.clone()));
         }
         for field in &class.fields {
             if !hir_def::jvm::access::JvmAccessFlags::from_bits_retain(field.flags).is_static() {
@@ -533,7 +533,7 @@ pub(crate) fn kotlin_facade_name_index_query<'db>(
             index
                 .entry(Name::new(interner.resolve(&field.name)))
                 .or_default()
-                .push(hir::Resolved::Library(facade.clone()));
+                .push(jvm_index::Resolved::Library(facade.clone()));
         }
     }
     Arc::new(index)
@@ -543,9 +543,9 @@ pub(crate) fn kotlin_facade_name_index_query<'db>(
 /// [`kotlin_facade_name_index_query`].
 pub fn facade_name_index(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     package: &Name,
-) -> Arc<rustc_hash::FxHashMap<Name, Vec<hir::Resolved>>> {
+) -> Arc<rustc_hash::FxHashMap<Name, Vec<jvm_index::Resolved>>> {
     kotlin_facade_name_index_query(db, FacadeKey::new(db, scope.clone(), package.clone()))
 }
 
@@ -553,9 +553,9 @@ pub fn facade_name_index(
 /// [`kotlin_facade_classes_query`].
 pub fn facade_classes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     package: &Name,
-) -> Arc<[hir::Resolved]> {
+) -> Arc<[jvm_index::Resolved]> {
     kotlin_facade_classes_query(db, FacadeKey::new(db, scope.clone(), package.clone()))
 }
 
@@ -572,19 +572,19 @@ pub fn facade_classes(
 #[salsa::tracked(returns(clone))]
 pub(crate) fn kotlin_extension_candidates_query<'db>(
     db: &'db dyn TyDatabase,
-    source_set: hir::SourceSetId,
+    source_set: jvm_index::SourceSetId,
     package: Name,
     name: Name,
 ) -> Arc<[(FileId, ItemId)]> {
     let fqn = Name::new(&format!("{package}.{name}"));
-    let symbols = hir::source_set_fqn_symbols(db, source_set, &package, &fqn);
+    let symbols = jvm_index::source_set_fqn_symbols(db, source_set, &package, &fqn);
     Arc::from(
         symbols
             .iter()
             .filter(|reference| {
                 matches!(
                     reference.symbol.kind,
-                    hir::SourceSymbolKind::Function | hir::SourceSymbolKind::Property
+                    jvm_index::SourceSymbolKind::Function | jvm_index::SourceSymbolKind::Property
                 )
             })
             .map(|reference| (reference.file, reference.symbol.item))
@@ -596,7 +596,7 @@ pub(crate) fn kotlin_extension_candidates_query<'db>(
 /// source symbol index. See [`kotlin_extension_candidates_query`].
 pub fn extension_candidates(
     db: &dyn TyDatabase,
-    source_set: hir::SourceSetId,
+    source_set: jvm_index::SourceSetId,
     package: &Name,
     name: &Name,
 ) -> Arc<[(FileId, ItemId)]> {
@@ -700,7 +700,7 @@ pub fn declaration_types(
     file_id: FileId,
     item_id: ItemId,
 ) -> Arc<super::infer::KotlinBodyTypes> {
-    let tree = hir::file_item_tree(db, file_id);
+    let tree = jvm_index::file_item_tree(db, file_id);
     let has_body = hir_def::kotlin::plugin::model(&tree)
         .is_some_and(|tree| tree.data(item_id).body_id().is_some());
     match has_body {

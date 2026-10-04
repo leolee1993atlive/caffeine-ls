@@ -58,7 +58,7 @@ use vfs::FileId;
 use crate::java::decl_check::DeclDiagnostic;
 use crate::jvm::db::TyDatabase;
 use crate::range_ctx::range_ctx;
-use hir::JavaLanguageLevel;
+use jvm_index::JavaLanguageLevel;
 
 /// How a construct violates its source set's level, in
 /// `Source.Preview.checkSourceLevel` order.
@@ -150,7 +150,7 @@ impl JavaFeature {
 /// source set exported no level (or an unknown one) yield an empty report — a
 /// guessed level would report every file of the project.
 pub(crate) fn level_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<DeclDiagnostic> {
-    let Some(level) = hir::language_level_for_file(db, file) else {
+    let Some(level) = jvm_index::language_level_for_file(db, file) else {
         return Vec::new();
     };
     let tree = hir_def::java::plugin::tree(db, file);

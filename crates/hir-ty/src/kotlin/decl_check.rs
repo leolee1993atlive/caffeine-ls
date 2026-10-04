@@ -49,11 +49,11 @@
 //!   obligation of the same name; its parameters are compared as Kotlin types.
 
 use base_db::LanguageKind;
-use hir::hir_def::kotlin::item_tree::{
+use hir_expand::{ids::ItemId, name::Name};
+use jvm_index::hir_def::kotlin::item_tree::{
     ClassData, KotlinClassKind, KotlinItemData, KotlinItemTree, KotlinSuperType, PropertyData,
 };
-use hir::hir_def::kotlin::modifiers::{KotlinModality, KotlinModifierFlags, KotlinModifiers};
-use hir_expand::{ids::ItemId, name::Name};
+use jvm_index::hir_def::kotlin::modifiers::{KotlinModality, KotlinModifierFlags, KotlinModifiers};
 use rowan::TextRange;
 use syntax::KotlinDiagnosticCode;
 use vfs::FileId;
@@ -268,13 +268,13 @@ impl DeclDiagnostic {
 /// level, every classifier body and every function body — checked against the
 /// members its supertypes declare.
 pub fn class_diagnostics(db: &dyn TyDatabase, file: FileId) -> Vec<DeclDiagnostic> {
-    let outer = hir::file_item_tree(db, file);
+    let outer = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
         return Vec::new();
     };
-    let scope = match hir::source_set_for_file(db, file) {
-        Some(source_set) => hir::ResolutionScope::SourceSet(source_set),
-        None => hir::ResolutionScope::JdkBuiltins,
+    let scope = match jvm_index::source_set_for_file(db, file) {
+        Some(source_set) => jvm_index::ResolutionScope::SourceSet(source_set),
+        None => jvm_index::ResolutionScope::JdkBuiltins,
     };
     let mut out = Vec::new();
     let top = tree.top.clone();
@@ -298,7 +298,7 @@ fn check_scope(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &KotlinItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     items: &[ItemId],
     location: Location,
     out: &mut Vec<DeclDiagnostic>,
@@ -401,7 +401,7 @@ fn render_signature(
     item: ItemId,
 ) -> String {
     let resolver = KotlinResolver::for_item(db, file, tree, item);
-    let render = |ty: &hir::hir_def::jvm::decl::ItemTypeRef| {
+    let render = |ty: &jvm_index::hir_def::jvm::decl::ItemTypeRef| {
         display_kotlin(db, ty_from_type_ref(db, &resolver, &ty.ty)).to_string()
     };
     match tree.data(item) {
@@ -478,7 +478,7 @@ fn check_class(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &KotlinItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     item: ItemId,
     class: &ClassData,
     location: Location,
@@ -534,7 +534,7 @@ fn check_override(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &KotlinItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     class_ty: &Ty,
     declaration: &Declaration,
     site: CallSite,
@@ -602,7 +602,7 @@ fn check_abstract_members(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &KotlinItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     item: ItemId,
     class: &ClassData,
     class_ty: &Ty,
@@ -665,19 +665,19 @@ struct Obligation {
 /// `declarations.html#abstract-classes`](https://kotlinlang.org/spec/declarations.html#abstract-classes)).
 fn abstract_members_of(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     supertype: &Ty,
 ) -> Vec<Obligation> {
     let mut out = Vec::new();
     let TyKind::Reference { name, .. } = supertype.kind(db) else {
         return out;
     };
-    let Some(resolved) = hir::fqn_resolve(db, scope, name.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, scope, name.as_str()) else {
         return out;
     };
     match &resolved {
-        hir::Resolved::Source(class) => {
-            let outer = hir::file_item_tree(db, class.file);
+        jvm_index::Resolved::Source(class) => {
+            let outer = jvm_index::file_item_tree(db, class.file);
             let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
                 return out;
             };
@@ -728,7 +728,7 @@ fn abstract_members_of(
                 });
             }
         }
-        hir::Resolved::Library(_) => {
+        jvm_index::Resolved::Library(_) => {
             let Some(source) = crate::lang::member_source(db, &resolved) else {
                 return out;
             };
@@ -762,7 +762,7 @@ fn abstract_members_of(
                 });
             }
         }
-        hir::Resolved::Facade { .. } => {}
+        jvm_index::Resolved::Facade { .. } => {}
     }
     out
 }
@@ -777,7 +777,7 @@ fn check_supertype_initializers(
     db: &dyn TyDatabase,
     file: FileId,
     tree: &KotlinItemTree,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     item: ItemId,
     class: &ClassData,
     out: &mut Vec<DeclDiagnostic>,
@@ -803,7 +803,7 @@ fn check_supertype_initializers(
 /// constructor does not speak about.
 fn declares_required_parameters(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &KotlinResolver<'_>,
     super_type: &KotlinSuperType,
 ) -> bool {
@@ -811,10 +811,11 @@ fn declares_required_parameters(
     let TyKind::Reference { name, .. } = ty.kind(db) else {
         return false;
     };
-    let Some(hir::Resolved::Source(class)) = hir::fqn_resolve(db, scope, name.as_str()) else {
+    let Some(jvm_index::Resolved::Source(class)) = jvm_index::fqn_resolve(db, scope, name.as_str())
+    else {
         return false;
     };
-    let outer = hir::file_item_tree(db, class.file);
+    let outer = jvm_index::file_item_tree(db, class.file);
     let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
         return false;
     };
@@ -1154,7 +1155,7 @@ fn overridable(db: &dyn TyDatabase, member: &Member) -> bool {
             // The member's *own* file: an item id indexes the arena of the file
             // its declaration lowered in, and a supertype's member usually
             // lives in another one.
-            let outer = hir::file_item_tree(db, *file);
+            let outer = jvm_index::file_item_tree(db, *file);
             let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
                 return false;
             };
@@ -1198,7 +1199,7 @@ fn container_is_interface(tree: &KotlinItemTree, item: ItemId) -> bool {
 fn member_is_abstract(db: &dyn TyDatabase, member: &Member) -> bool {
     match &member.target {
         MemberTarget::Kotlin { file, item } => {
-            let outer = hir::file_item_tree(db, *file);
+            let outer = jvm_index::file_item_tree(db, *file);
             let Some(tree) = hir_def::kotlin::plugin::model(&outer) else {
                 return false;
             };

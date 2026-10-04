@@ -14,7 +14,7 @@ use crate::common::{
     check_level_diagnostics, check_level_diagnostics_across_first_load,
     check_level_diagnostics_across_reloads, check_level_diagnostics_unknown,
 };
-use hir::JavaLanguageLevel;
+use jvm_index::JavaLanguageLevel;
 
 fn level(source: u8) -> JavaLanguageLevel {
     JavaLanguageLevel::new(source, false).expect("valid source level")

@@ -18,7 +18,7 @@ use common::{
 };
 
 use base_db::{FileChange, SourceDatabase, SourceRoot, SourceRootId};
-use hir::LibraryKind;
+use jvm_index::LibraryKind;
 use tempfile::TempDir;
 use triomphe::Arc;
 use vfs::{AbsPathBuf, VfsPath, file_set::FileSet};
@@ -77,7 +77,7 @@ public class Use {
 /// A source set holding `files` (Java and Kotlin), compiled against the JDK
 /// fixture and a hand-encoded Kotlin standard library — the one source set of a
 /// mixed JVM project, which is where Java sees Kotlin and Kotlin sees Java.
-fn interop_fixture(files: &[(&str, &str)]) -> (TestDatabase, hir::SourceSetId) {
+fn interop_fixture(files: &[(&str, &str)]) -> (TestDatabase, jvm_index::SourceSetId) {
     let dir = TempDir::new().unwrap();
     let jdk = jdk_fixture();
     let (stdlib, stdlib_path) =
@@ -101,31 +101,33 @@ fn interop_fixture(files: &[(&str, &str)]) -> (TestDatabase, hir::SourceSetId) {
     }
     change.apply(&mut db);
 
-    let source_set = hir::SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+    let source_set = jvm_index::SourceSetId {
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
-    let mut data = hir::ProjectGraphData::default();
-    let jdk_info = hir::LibraryInfo::new(
+    let mut data = jvm_index::ProjectGraphData::default();
+    let jdk_info = jvm_index::LibraryInfo::new(
         LibraryKind::Jar,
         AbsPathBuf::assert_utf8(jdk.jar.as_std_path().to_owned()),
     );
     data.libraries.insert(jdk.lib, jdk_info);
-    data.libraries
-        .insert(stdlib, hir::LibraryInfo::new(LibraryKind::Jar, stdlib_path));
+    data.libraries.insert(
+        stdlib,
+        jvm_index::LibraryInfo::new(LibraryKind::Jar, stdlib_path),
+    );
     data.jdk_libraries.push(jdk.lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath {
+        Arc::new(jvm_index::Classpath {
             entries: vec![
-                hir::ClasspathEntry::Library(jdk.lib),
-                hir::ClasspathEntry::Library(stdlib),
+                jvm_index::ClasspathEntry::Library(jdk.lib),
+                jvm_index::ClasspathEntry::Library(stdlib),
             ],
         }),
     );
     data.source_root_to_source_set
         .insert(SourceRootId(0), source_set.clone());
-    hir::set_project_graph(&mut db, data);
+    jvm_index::set_project_graph(&mut db, data);
     // The database outlives the fixtures; their jars are read lazily.
     std::mem::forget(dir);
     jdk.keep_alive();
@@ -178,7 +180,7 @@ public class Smoke {
     let file = FileId::from_raw(2);
     assert!(hir_ty::class_diagnostics(&db, file).is_empty());
     let tree = hir_def::java::plugin::tree(&db, file);
-    let bodies = hir::file_body_tree(&db, file);
+    let bodies = jvm_index::file_body_tree(&db, file);
     let (item, _) = common::all_items(&tree).into_iter().find(|(_, data)| {
         matches!(data, hir_def::java::item_tree::ItemData::Method(method) if method.name.as_str() == "main")
     }).unwrap();
@@ -236,7 +238,7 @@ void bad(Words w, Numbers n) { String word = w.getValues(); int number = n.getVa
     ]);
     let file = FileId::from_raw(2);
     let tree = hir_def::java::plugin::tree(&db, file);
-    let bodies = hir::file_body_tree(&db, file);
+    let bodies = jvm_index::file_body_tree(&db, file);
     for (item, data) in common::all_items(&tree) {
         let hir_def::java::item_tree::ItemData::Method(method) = data else {
             continue;
@@ -268,16 +270,16 @@ fn java_resolves_canonical_kotlin_names() {
         ("/src/main/kotlin/p/app.kt", kotlin),
         ("/src/main/java/p/Use.java", java),
     ]);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
     assert!(matches!(
-        hir::fqn_resolve(&db, &scope, "p.Box"),
-        Some(hir::Resolved::Source(_))
+        jvm_index::fqn_resolve(&db, &scope, "p.Box"),
+        Some(jvm_index::Resolved::Source(_))
     ));
     assert!(matches!(
-        hir::fqn_resolve(&db, &scope, "p.AppKt"),
-        Some(hir::Resolved::Facade { .. })
+        jvm_index::fqn_resolve(&db, &scope, "p.AppKt"),
+        Some(jvm_index::Resolved::Facade { .. })
     ));
-    assert!(hir::fqn_resolve(&db, &scope, "p.appKt").is_none());
+    assert!(jvm_index::fqn_resolve(&db, &scope, "p.appKt").is_none());
     let file = FileId::from_raw(2);
     let tree = hir_def::java::plugin::tree(&db, file);
     for (item, _) in common::all_items(&tree) {
@@ -305,7 +307,7 @@ fn java_resolves_canonical_kotlin_names() {
         .find(|(_, data)| data.name().is_some_and(|n| n.as_str() == "ordinary"))
         .unwrap()
         .0;
-    let bodies = hir::file_body_tree(&db, file);
+    let bodies = jvm_index::file_body_tree(&db, file);
     for spelling in ["ordinary()", "`ordinary`()"] {
         let target = types
             .resolved
@@ -366,8 +368,8 @@ fn the_java_layer_answers_for_a_kotlin_class() {
         ("/src/main/java/a/Use.java", USE_JAVA),
     ];
     let (db, _) = interop_fixture(&files);
-    let scope = hir::ResolutionScope::SourceSet(
-        hir::source_set_for_file(&db, FileId::from_raw(1)).unwrap(),
+    let scope = jvm_index::ResolutionScope::SourceSet(
+        jvm_index::source_set_for_file(&db, FileId::from_raw(1)).unwrap(),
     );
     let point = Ty::reference(&db, "a.Point", Vec::new());
     let ctx = hir_ty::InvocationContext::external(&scope);
@@ -457,7 +459,7 @@ fn a_kotlin_file_uses_another_files_top_level_declaration() {
     ];
     let (db, _) = interop_fixture(&files);
     let file = FileId::from_raw(2);
-    let tree = hir::hir_def::kotlin::plugin::tree(&db, file).expect("a Kotlin file");
+    let tree = jvm_index::hir_def::kotlin::plugin::tree(&db, file).expect("a Kotlin file");
     for (id, data) in tree.items.iter() {
         if data.body_id().is_none() {
             continue;
@@ -495,7 +497,7 @@ fn a_qualified_or_aliased_jvm_annotation_names_the_member() {
         ),
     ];
     let (db, source_set) = interop_fixture(&files);
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = hir_ty::InvocationContext::external(&scope);
     let renamed = Ty::reference(&db, "a.Renamed", Vec::new());
     for name in ["renamed", "qualifiedGetter"] {
@@ -550,11 +552,11 @@ fun top(seed: Int): Int = seed
     let (db, source_set) = interop_fixture(&files);
     let file = FileId::from_raw(1);
     assert_eq!(
-        hir::file_facade_class(&db, file).map(|facade| facade.to_string()),
+        jvm_index::file_facade_class(&db, file).map(|facade| facade.to_string()),
         Some("ShadowKt".to_owned()),
         "the file's own `JvmName` is not the library's, so the facade is the file's stem"
     );
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
     let ctx = hir_ty::InvocationContext::external(&scope);
     let holder = Ty::reference(&db, "a.Holder", Vec::new());
     assert!(
@@ -593,18 +595,18 @@ fn a_java_caller_reaches_a_default_facade() {
     ];
     let (db, source_set) = interop_fixture(&files);
     assert_eq!(
-        hir::file_facade_class(&db, FileId::from_raw(1)).map(|facade| facade.to_string()),
+        jvm_index::file_facade_class(&db, FileId::from_raw(1)).map(|facade| facade.to_string()),
         Some("SampleKt".to_owned()),
         "the compiler names a facade after the file"
     );
     // The facade is a *source-set class of the file's package*: `a.SampleKt` is
     // what a Java caller names, and the file index files the file under the
     // package it declares.
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
     assert!(
         matches!(
-            hir::fqn_resolve(&db, &scope, "a.SampleKt"),
-            Some(hir::Resolved::Facade { .. })
+            jvm_index::fqn_resolve(&db, &scope, "a.SampleKt"),
+            Some(jvm_index::Resolved::Facade { .. })
         ),
         "the facade resolves by its fully qualified name"
     );
@@ -619,11 +621,11 @@ fn a_java_caller_reaches_a_default_facade() {
 /// layer's member set answers them: the `is_static` flag of each candidate.
 fn jvm_method_statics(
     db: &TestDatabase,
-    source_set: &hir::SourceSetId,
+    source_set: &jvm_index::SourceSetId,
     fqn: &str,
     name: &str,
 ) -> Vec<bool> {
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = hir_ty::InvocationContext::external(&scope);
     let ty = Ty::reference(db, fqn, Vec::new());
     hir_ty::member_set(db, &scope, &ty, name, &ctx)
@@ -637,11 +639,11 @@ fn jvm_method_statics(
 /// caller's access (a `private` constructor is carried all the same).
 fn jvm_method_params(
     db: &TestDatabase,
-    source_set: &hir::SourceSetId,
+    source_set: &jvm_index::SourceSetId,
     fqn: &str,
     name: &str,
 ) -> Vec<Vec<String>> {
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = hir_ty::InvocationContext::external(&scope);
     let ty = Ty::reference(db, fqn, Vec::new());
     hir_ty::member_set_ignoring_access(db, &scope, &ty, name, &ctx)
@@ -660,11 +662,11 @@ fn jvm_method_params(
 /// `(is_static, is_final)` — the shape a Java caller reads.
 fn jvm_field_shape(
     db: &TestDatabase,
-    source_set: &hir::SourceSetId,
+    source_set: &jvm_index::SourceSetId,
     fqn: &str,
     name: &str,
 ) -> Option<(bool, bool)> {
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = hir_ty::InvocationContext::external(&scope);
     let ty = Ty::reference(db, fqn, Vec::new());
     hir_ty::pick_field(db, &scope, &ty, name, &ctx).map(|field| (field.is_static, field.is_final))
@@ -1015,11 +1017,11 @@ class Overloaded @JvmOverloads constructor(val a: Int = 0)
 /// `throws` clauses — the classfile's `Exceptions` attribute.
 fn jvm_method_throws(
     db: &TestDatabase,
-    source_set: &hir::SourceSetId,
+    source_set: &jvm_index::SourceSetId,
     fqn: &str,
     name: &str,
 ) -> Vec<Vec<String>> {
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = hir_ty::InvocationContext::external(&scope);
     let ty = Ty::reference(db, fqn, Vec::new());
     hir_ty::member_set(db, &scope, &ty, name, &ctx)
@@ -1215,7 +1217,7 @@ class Use {
         ("/src/main/kotlin/p/Probe.kt", kotlin),
         ("/src/main/java/p/Use.java", java),
     ]);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
     let ctx = hir_ty::InvocationContext::external(&scope);
     let probe = Ty::reference(&db, "p.Probe", vec![]);
     let expected = [
@@ -1235,7 +1237,7 @@ class Use {
     }
     let file = FileId::from_raw(2);
     let tree = hir_def::java::plugin::tree(&db, file);
-    let bodies = hir::file_body_tree(&db, file);
+    let bodies = jvm_index::file_body_tree(&db, file);
     let (item, _) = common::all_items(&tree).into_iter().find(|(_, data)| {
         matches!(data, hir_def::java::item_tree::ItemData::Method(m) if m.name.as_str() == "run")
     }).unwrap();
@@ -1328,7 +1330,7 @@ class Outside {
         ("/src/main/java/q/Outside.java", outside),
     ]);
     // Configure only this compilation, leaving the shared fixture's defaults intact.
-    let graph = hir::project_graph(&db).unwrap();
+    let graph = jvm_index::project_graph(&db).unwrap();
     let mut module_names = graph.module_names(&db).clone();
     module_names.insert(source_set, hir_expand::name::Name::new("m"));
     graph.set_module_names(&mut db).to(module_names);
@@ -1341,7 +1343,7 @@ class Outside {
         let declarations = hir_ty::class_diagnostics(&db, file);
         assert!(declarations.is_empty(), "{declarations:?}");
         let tree = hir_def::java::plugin::tree(&db, file);
-        let bodies = hir::file_body_tree(&db, file);
+        let bodies = jvm_index::file_body_tree(&db, file);
         for (item, data) in common::all_items(&tree) {
             let hir_def::java::item_tree::ItemData::Method(method) = data else {
                 continue;

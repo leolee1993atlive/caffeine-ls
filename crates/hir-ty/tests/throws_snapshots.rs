@@ -72,7 +72,7 @@ fn check_throws() -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     let source_set = register_source_set(&mut db, &fixture, UTIL_SRC);
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let ctx = common::source_context(&db, source_set);
 
     throws_samples()

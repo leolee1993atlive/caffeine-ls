@@ -152,11 +152,11 @@ fn collect(
     out: &mut Vec<InlayHintDetail>,
     pending: &mut Vec<nav::LibraryFileRef>,
 ) {
-    let tree = hir::file_item_tree(db, file);
-    let Some(tree) = hir::hir_def::kotlin::plugin::model(&tree) else {
+    let tree = jvm_index::file_item_tree(db, file);
+    let Some(tree) = jvm_index::hir_def::kotlin::plugin::model(&tree) else {
         return;
     };
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     for (id, _) in tree.items.iter() {
         let item = hir_expand::ids::ItemId(id);
         if tree.data(item).body_id().is_none() {
@@ -260,13 +260,13 @@ fn call_shape(
 ) -> Option<CallShape> {
     match member {
         KotlinResolvedMember::Kotlin { file, item } => {
-            let tree = hir::hir_def::kotlin::plugin::tree(db, *file)?;
+            let tree = jvm_index::hir_def::kotlin::plugin::tree(db, *file)?;
             let data = tree.data(*item);
             let (name, params) = match data {
-                hir::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => {
+                jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => {
                     (&data.name, &data.params)
                 }
-                hir::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => {
+                jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => {
                     return Some(CallShape {
                         name: written.to_owned(),
                         arity: data.params.len(),
@@ -292,7 +292,7 @@ fn call_shape(
 
 /// Whether the last of `params` is variable-arity
 /// ([KLS `declarations.html#variable-arity-parameters`](https://kotlinlang.org/spec/declarations.html#variable-arity-parameters)).
-fn is_varargs(params: &[hir::hir_def::kotlin::item_tree::KotlinParam]) -> bool {
+fn is_varargs(params: &[jvm_index::hir_def::kotlin::item_tree::KotlinParam]) -> bool {
     params.last().is_some_and(|param| param.param.varargs)
 }
 
@@ -313,12 +313,12 @@ fn declared_names(
 ) -> Option<(Vec<String>, String)> {
     match member {
         KotlinResolvedMember::Kotlin { file, item } => {
-            let tree = hir::hir_def::kotlin::plugin::tree(db, *file)?;
+            let tree = jvm_index::hir_def::kotlin::plugin::tree(db, *file)?;
             let names = match tree.data(*item) {
-                hir::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => {
+                jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => {
                     parameter_names(&data.params)
                 }
-                hir::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => {
+                jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => {
                     parameter_names(&data.params)
                 }
                 _ => return None,
@@ -356,7 +356,7 @@ fn declared_names(
 }
 
 /// The declared name of every formal parameter, in order.
-fn parameter_names(params: &[hir::hir_def::kotlin::item_tree::KotlinParam]) -> Vec<String> {
+fn parameter_names(params: &[jvm_index::hir_def::kotlin::item_tree::KotlinParam]) -> Vec<String> {
     params
         .iter()
         .map(|param| param.param.name.as_str().to_owned())

@@ -148,9 +148,9 @@ const LIB_SOURCE_FILE: u32 = 1000;
 /// * `None`: the library ships no sources, so it can never name a member (the
 ///   state a client that disabled source download leaves its dependencies in);
 /// * `Some((text, true))`: the archive carries the class's source and the file
-///   is *loaded* — [`hir::LibrarySourceDecl::Loaded`];
+///   is *loaded* — [`jvm_index::LibrarySourceDecl::Loaded`];
 /// * `Some((text, false))`: the archive carries it but no session has
-///   materialized it — [`hir::LibrarySourceDecl::Pending`].
+///   materialized it — [`jvm_index::LibrarySourceDecl::Pending`].
 ///
 /// `workspace` runs the fixture inside a caller-owned directory instead of a
 /// fresh one, which is what two sessions *sharing a library cache* need: a

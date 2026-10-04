@@ -24,14 +24,14 @@
 //! The parser's CST is consulted for identifiers only in that last fallback, so
 //! a name's tag never depends on a syntactic guess where the HIR knows better.
 
-use hir::SourceSymbolKind;
-use hir::hir_def::java::item_tree::{ItemData, ItemId, ItemTree, TypeParam};
-use hir::hir_def::java::modifiers::{JavaModality, JavaModifierFlags, JavaModifiers};
-use hir::hir_def::java::ranges;
 use hir_expand::ast_id_map::AstIdMap;
 use hir_expand::body::{BodyTree, ExprData, ExprId, LocalId, PostfixOp, UnaryOp};
 use hir_expand::name::Name;
 use hir_ty::{AnnotationTarget, ResolvedMember};
+use jvm_index::SourceSymbolKind;
+use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree, TypeParam};
+use jvm_index::hir_def::java::modifiers::{JavaModality, JavaModifierFlags, JavaModifiers};
+use jvm_index::hir_def::java::ranges;
 use rowan::{SyntaxNode, SyntaxToken, TextRange};
 use rustc_hash::FxHashSet;
 use syntax::SourceFile;
@@ -46,9 +46,9 @@ pub(crate) fn highlight(db: &RootDatabase, file_id: FileId, source: &SourceFile)
     let Some(root) = java_root(source) else {
         return Vec::new();
     };
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
-    let bodies = hir::file_body_tree(db, file_id);
-    let map = hir::hir_def::db::ast_id_map(db, file_id, tree.language);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
+    let bodies = jvm_index::file_body_tree(db, file_id);
+    let map = jvm_index::hir_def::db::ast_id_map(db, file_id, tree.language);
     // The parameters of every body, and the expressions an assignment writes:
     // both classify body records, so they are computed once for the file.
     let params: FxHashSet<LocalId> = bodies
@@ -235,7 +235,7 @@ fn names(tree: &ItemTree, map: &AstIdMap, source: &SourceFile, out: &mut Highlig
 /// the body passes below cover the whole file regardless.
 fn declarations(tree: &ItemTree, map: &AstIdMap, source: &SourceFile, out: &mut Highlights) {
     for (raw, data) in tree.items.iter() {
-        let Some(kind) = hir::java::plugin::symbol_kind(data) else {
+        let Some(kind) = jvm_index::java::plugin::symbol_kind(data) else {
             continue;
         };
         let item = ItemId(raw);

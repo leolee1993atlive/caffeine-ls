@@ -3,14 +3,14 @@
 //! Two halves: the renderer ([`render_javadoc`]), a pure function of the
 //! comment text — the module's testable seam — and the lookup
 //! ([`hover_docs`]), which ties it to the per-file doc-comment index of the
-//! HIR layer ([`hir::item_doc`]): the index owns the *ranges*, the file's
+//! HIR layer ([`jvm_index::item_doc`]): the index owns the *ranges*, the file's
 //! `FileText` owns the text, and this module owns the conversion to the
 //! Markdown an editor renders.
 
 pub(crate) mod javadoc;
 pub(crate) mod kdoc;
 
-use hir::hir_def::jvm::ids::ItemId;
+use jvm_index::hir_def::jvm::ids::ItemId;
 use vfs::FileId;
 
 use crate::RootDatabase;
@@ -44,5 +44,5 @@ pub(crate) fn doc_param(
     item: ItemId,
     name: &str,
 ) -> Option<String> {
-    javadoc::param(hir::item_doc(db, file, item)?, name)
+    javadoc::param(jvm_index::item_doc(db, file, item)?, name)
 }

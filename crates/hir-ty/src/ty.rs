@@ -98,14 +98,14 @@ pub enum TyKind {
     /// which has a simple name but neither a fully qualified nor a canonical
     /// name ([§6.7](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.7)):
     /// it is identified by its declaration — the same identity
-    /// [`hir::Resolved::Source`] carries — while `name` stays the declaration's
+    /// [`jvm_index::Resolved::Source`] carries — while `name` stays the declaration's
     /// *simple* name, which is what javac and the IDE render. The plain-name
     /// form cannot collide: only one declaration of that name is in scope at a
     /// use site ([§6.4.1]).
     Reference {
         name: Name,
         args: Vec<Ty>,
-        local: Option<hir::SourceClass>,
+        local: Option<jvm_index::SourceClass>,
     },
     /// A type variable ([JLS §4.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.4))
     /// with its declared bounds ([§4.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.4)).
@@ -424,7 +424,7 @@ impl Ty {
     /// class has no canonical name). See [`TyKind::Reference`].
     pub fn local_reference(
         db: &dyn TyDatabase,
-        class: hir::SourceClass,
+        class: jvm_index::SourceClass,
         simple: impl Into<Name>,
         args: Vec<Ty>,
     ) -> Self {
@@ -861,7 +861,7 @@ impl Ty {
     pub fn for_each_reference(
         &self,
         db: &dyn TyDatabase,
-        f: &mut impl FnMut(&Name, Option<hir::SourceClass>),
+        f: &mut impl FnMut(&Name, Option<jvm_index::SourceClass>),
     ) {
         match self.kind(db) {
             TyKind::Reference { name, args, local } => {

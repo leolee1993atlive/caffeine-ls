@@ -67,7 +67,7 @@ fn inherited_types_obey_hiding_access_and_diamond_identity() {
     let file = FileId::from_raw(2);
     let tree = hir_def::java::plugin::tree(&db, file);
     let resolver = Resolver::for_file(&tree);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
     let resolve = |name: &str| resolve_name_checked(&db, &scope, &resolver, &Name::new(name));
     assert_eq!(
         resolve("p.Diamond.Shared"),
@@ -105,7 +105,7 @@ fn binary_nested_visibility_is_read_from_inner_classes() {
         build_zip, class, class_bytes, class_with_methods_access, register_source_set_classpath,
         temp_jar,
     };
-    use hir::{ClasspathEntry, LibraryInfo, LibraryKind};
+    use jvm_index::{ClasspathEntry, LibraryInfo, LibraryKind};
     use rust_asm::{class_writer::ClassWriter, constants::*};
     use vfs::AbsPathBuf;
 
@@ -171,7 +171,7 @@ fn binary_nested_visibility_is_read_from_inner_classes() {
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let tree = hir_def::java::plugin::tree(&db, file);
     let resolver = Resolver::for_file(&tree);
-    let scope = hir::ResolutionScope::SourceSet(set);
+    let scope = jvm_index::ResolutionScope::SourceSet(set);
     for denied in ["lib.Mid.Parent", "lib.Mid.Secret"] {
         assert_eq!(
             resolve_name_checked(&db, &scope, &resolver, &Name::new(denied)),

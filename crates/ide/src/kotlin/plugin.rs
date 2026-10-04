@@ -175,19 +175,22 @@ impl LanguageIde for Kotlin {
         file: FileId,
         item: symbols::ItemId,
     ) -> Arc<[String]> {
-        let Some(tree) = hir::hir_def::kotlin::plugin::tree(db, file) else {
+        let Some(tree) = jvm_index::hir_def::kotlin::plugin::tree(db, file) else {
             return Arc::from(Vec::new());
         };
         let params = match tree.data(item) {
-            hir::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => &data.params,
-            hir::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => &data.params,
+            jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Function(data) => &data.params,
+            jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Constructor(data) => {
+                &data.params
+            }
             _ => return Arc::from(Vec::new()),
         };
         Arc::from(
             params
                 .iter()
                 .map(|parameter| {
-                    hir::hir_def::kotlin::pretty::display_type(&parameter.param.ty).to_string()
+                    jvm_index::hir_def::kotlin::pretty::display_type(&parameter.param.ty)
+                        .to_string()
                 })
                 .collect::<Vec<_>>(),
         )

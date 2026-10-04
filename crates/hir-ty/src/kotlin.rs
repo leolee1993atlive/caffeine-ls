@@ -4,7 +4,7 @@
 //! become [`crate::ty::Ty`] values. It is a separate module from
 //! [`crate::java`] because it resolves Kotlin's scopes and nullability, and it
 //! shares the model, the interner and the classpath lookup
-//! ([`hir::fqn_resolve`]) with it.
+//! ([`jvm_index::fqn_resolve`]) with it.
 //!
 //! # Reference
 //!

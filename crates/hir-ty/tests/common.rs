@@ -13,15 +13,15 @@ use base_db::{
     DepsMap, FileChange, FileSourceRootInput, FileText, Files, LanguageKind, Nonce, SourceDatabase,
     SourceRoot, SourceRootId, SourceRootInput, salsa::Durability,
 };
-use hir::{
-    HirDatabase, HirState, JavaDatabase, JvmDatabase, KotlinDatabase, LibraryId, LibraryInfo,
-    LibraryKind, lmdb_store::StubStore,
-};
 use hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 use hir_ty::{DiagLocation, Ty, TyDatabase, is_assignable, is_subtype, supertypes};
 pub use ide_diagnostics::{
     body_code, body_message, body_related, decl_code, decl_message, keeps_body_diagnostic,
     keeps_decl_diagnostic,
+};
+use jvm_index::{
+    HirDatabase, HirState, JavaDatabase, JvmDatabase, KotlinDatabase, LibraryId, LibraryInfo,
+    LibraryKind, lmdb_store::StubStore,
 };
 use tempfile::TempDir;
 use triomphe::Arc;
@@ -235,22 +235,22 @@ pub fn jdk_fixture() -> JdkFixture {
 /// Registers the fixture jar as both a library and a JDK built-in, and sets
 /// the project graph.
 pub fn register_jdk(db: &mut TestDatabase, fixture: &JdkFixture) {
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         fixture.lib,
-        hir::LibraryInfo::new(
+        jvm_index::LibraryInfo::new(
             LibraryKind::Jar,
             AbsPathBuf::assert_utf8(fixture.jar.as_std_path().to_owned()),
         ),
     );
     data.jdk_libraries.push(fixture.lib);
-    hir::set_project_graph(db, data);
+    jvm_index::set_project_graph(db, data);
 }
 
 /// A JDK fixture whose SDK also ships a `ct.sym` — the archive javac reads for
 /// `javac --release N`
 /// ([JEP 247](https://openjdk.org/jeps/247)). The archive is written next to
-/// the runtime jar, which is where [`hir::ct_sym`] derives its path from.
+/// the runtime jar, which is where [`jvm_index::ct_sym`] derives its path from.
 pub struct ReleaseFixture {
     pub jdk: JdkFixture,
 }
@@ -575,12 +575,12 @@ pub fn fixture_library(
     dir: &TempDir,
     name: &str,
     specs: &[ClassSpec<'static>],
-) -> (hir::LibraryId, AbsPathBuf) {
+) -> (jvm_index::LibraryId, AbsPathBuf) {
     let path = camino::Utf8PathBuf::from_path_buf(dir.path().join(name)).unwrap();
     build_jar(&path, specs);
     let abs = AbsPathBuf::assert_utf8(path.as_std_path().to_owned());
     (
-        hir::LibraryId::from_file_path(path.as_std_path()).unwrap(),
+        jvm_index::LibraryId::from_file_path(path.as_std_path()).unwrap(),
         abs,
     )
 }
@@ -627,7 +627,7 @@ pub fn register_source_set(
     db: &mut TestDatabase,
     fixture: &JdkFixture,
     files: &[(&str, &str)],
-) -> hir::SourceSetId {
+) -> jvm_index::SourceSetId {
     register_source_set_at_level(db, fixture, files, None)
 }
 
@@ -638,8 +638,8 @@ pub fn register_source_set_at_level(
     db: &mut TestDatabase,
     fixture: &JdkFixture,
     files: &[(&str, &str)],
-    level: Option<hir::JavaLanguageLevel>,
-) -> hir::SourceSetId {
+    level: Option<jvm_index::JavaLanguageLevel>,
+) -> jvm_index::SourceSetId {
     register_source_set_with(db, fixture.library(), files, level, None)
 }
 
@@ -651,9 +651,9 @@ pub fn register_source_set_at_release(
     db: &mut TestDatabase,
     fixture: &JdkFixture,
     files: &[(&str, &str)],
-    level: Option<hir::JavaLanguageLevel>,
+    level: Option<jvm_index::JavaLanguageLevel>,
     release: Option<u8>,
-) -> hir::SourceSetId {
+) -> jvm_index::SourceSetId {
     register_source_set_with(db, fixture.library(), files, level, release)
 }
 
@@ -663,9 +663,9 @@ fn register_source_set_with(
     db: &mut TestDatabase,
     jdk: (LibraryId, LibraryInfo),
     files: &[(&str, &str)],
-    level: Option<hir::JavaLanguageLevel>,
+    level: Option<jvm_index::JavaLanguageLevel>,
     release: Option<u8>,
-) -> hir::SourceSetId {
+) -> jvm_index::SourceSetId {
     let mut file_set = FileSet::default();
     for (i, (path, _)) in files.iter().enumerate() {
         file_set.insert(
@@ -681,18 +681,18 @@ fn register_source_set_with(
     }
     change.apply(db);
 
-    let source_set = hir::SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+    let source_set = jvm_index::SourceSetId {
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
     let (jdk_lib, jdk_info) = jdk;
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(jdk_lib, jdk_info);
     data.jdk_libraries.push(jdk_lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath {
-            entries: vec![hir::ClasspathEntry::Library(jdk_lib)],
+        Arc::new(jvm_index::Classpath {
+            entries: vec![jvm_index::ClasspathEntry::Library(jdk_lib)],
         }),
     );
     data.source_root_to_source_set
@@ -703,7 +703,7 @@ fn register_source_set_with(
     if let Some(release) = release {
         data.releases.insert(source_set.clone(), release);
     }
-    hir::set_project_graph(db, data);
+    jvm_index::set_project_graph(db, data);
     source_set
 }
 
@@ -711,13 +711,13 @@ fn register_source_set_with(
 /// resolved base directory (as a build system would) in `source_root_dirs`.
 /// This lets the package-path diagnostic anchor the file's package directory
 /// on the exact base — including for single-file roots, where the file-set
-/// heuristic ([`hir::file_package_dir`]) can recover no base.
+/// heuristic ([`jvm_index::file_package_dir`]) can recover no base.
 pub fn register_source_set_with_base(
     db: &mut TestDatabase,
     fixture: &JdkFixture,
     base: &str,
     files: &[(&str, &str)],
-) -> hir::SourceSetId {
+) -> jvm_index::SourceSetId {
     let mut file_set = FileSet::default();
     for (i, (path, _)) in files.iter().enumerate() {
         file_set.insert(
@@ -733,14 +733,14 @@ pub fn register_source_set_with_base(
     }
     change.apply(db);
 
-    let source_set = hir::SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+    let source_set = jvm_index::SourceSetId {
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         fixture.lib,
-        hir::LibraryInfo::new(
+        jvm_index::LibraryInfo::new(
             LibraryKind::Jar,
             AbsPathBuf::assert_utf8(fixture.jar.as_std_path().to_owned()),
         ),
@@ -748,15 +748,15 @@ pub fn register_source_set_with_base(
     data.jdk_libraries.push(fixture.lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath {
-            entries: vec![hir::ClasspathEntry::Library(fixture.lib)],
+        Arc::new(jvm_index::Classpath {
+            entries: vec![jvm_index::ClasspathEntry::Library(fixture.lib)],
         }),
     );
     data.source_root_to_source_set
         .insert(SourceRootId(0), source_set.clone());
     data.source_root_dirs
         .insert(SourceRootId(0), AbsPathBuf::assert_utf8(base.into()));
-    hir::set_project_graph(db, data);
+    jvm_index::set_project_graph(db, data);
     source_set
 }
 
@@ -811,9 +811,9 @@ pub fn register_source_set_classpath(
     db: &mut TestDatabase,
     fixture: &JdkFixture,
     files: &[(&str, &str)],
-    classpath: Vec<hir::ClasspathEntry>,
+    classpath: Vec<jvm_index::ClasspathEntry>,
     extra: &[(LibraryId, LibraryInfo)],
-) -> hir::SourceSetId {
+) -> jvm_index::SourceSetId {
     let mut file_set = FileSet::default();
     for (i, (path, _)) in files.iter().enumerate() {
         file_set.insert(
@@ -829,14 +829,14 @@ pub fn register_source_set_classpath(
     }
     change.apply(db);
 
-    let source_set = hir::SourceSetId {
-        project: hir::ProjectId(0),
-        kind: hir::SourceSetKind::Main,
+    let source_set = jvm_index::SourceSetId {
+        project: jvm_index::ProjectId(0),
+        kind: jvm_index::SourceSetKind::Main,
     };
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         fixture.lib,
-        hir::LibraryInfo::new(
+        jvm_index::LibraryInfo::new(
             LibraryKind::Jar,
             AbsPathBuf::assert_utf8(fixture.jar.as_std_path().to_owned()),
         ),
@@ -847,11 +847,11 @@ pub fn register_source_set_classpath(
     data.jdk_libraries.push(fixture.lib);
     data.source_sets.insert(
         source_set.clone(),
-        Arc::new(hir::Classpath { entries: classpath }),
+        Arc::new(jvm_index::Classpath { entries: classpath }),
     );
     data.source_root_to_source_set
         .insert(SourceRootId(0), source_set.clone());
-    hir::set_project_graph(db, data);
+    jvm_index::set_project_graph(db, data);
     source_set
 }
 
@@ -865,14 +865,16 @@ pub fn register_source_set_classpath(
 /// ([`InvocationContext::external`]) when the source set owns no classes.
 pub fn source_context(
     db: &TestDatabase,
-    source_set: hir::SourceSetId,
+    source_set: jvm_index::SourceSetId,
 ) -> hir_ty::InvocationContext {
     // `register_source_set` maps the first source file to `FileId(1)`.
     let file = FileId::from_raw(1);
     let tree = hir_def::java::plugin::tree(db, file);
     match tree.top.first().copied() {
         Some(item) => hir_ty::access_context(db, file, item),
-        None => hir_ty::InvocationContext::external(&hir::ResolutionScope::SourceSet(source_set)),
+        None => {
+            hir_ty::InvocationContext::external(&jvm_index::ResolutionScope::SourceSet(source_set))
+        }
     }
 }
 
@@ -2501,7 +2503,7 @@ pub fn check_relations(samples: &[(&str, TyBuilder, TyBuilder, Relation)]) -> St
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::Classpath(vec![fixture.lib]);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![fixture.lib]);
 
     samples
         .iter()
@@ -2523,7 +2525,7 @@ pub fn check_supertypes(samples: &[&str]) -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::Classpath(vec![fixture.lib]);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![fixture.lib]);
 
     samples
         .iter()
@@ -2544,7 +2546,7 @@ pub fn check_supertypes_of(samples: &[(&str, TyBuilder)]) -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::Classpath(vec![fixture.lib]);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![fixture.lib]);
 
     samples
         .iter()
@@ -2602,7 +2604,7 @@ pub fn check_source_supertypes(files: &[(&str, &str)], samples: &[(&str, TyBuild
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     let source_set = register_source_set(&mut db, &fixture, files);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
 
     let mut lines = files
         .iter()
@@ -2630,7 +2632,7 @@ pub fn check_source_methods(
     let mut db = TestDatabase::new();
     let source_set = register_source_set(&mut db, &fixture, files);
     let context = source_context(&db, source_set.clone());
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
 
     let mut lines = files
         .iter()
@@ -2672,7 +2674,7 @@ pub fn check_source_relations(
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     let source_set = register_source_set(&mut db, &fixture, files);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
 
     let mut lines = files
         .iter()
@@ -2715,8 +2717,8 @@ pub fn check_body_types_with_libs(specs: &[ClassSpec<'static>], files: &[(&str, 
         AbsPathBuf::assert_utf8(extra.path.as_std_path().to_owned()),
     );
     let classpath = vec![
-        hir::ClasspathEntry::Library(fixture.lib),
-        hir::ClasspathEntry::Library(extra.lib),
+        jvm_index::ClasspathEntry::Library(fixture.lib),
+        jvm_index::ClasspathEntry::Library(extra.lib),
     ];
     register_source_set_classpath(&mut db, &fixture, files, classpath, &[(extra.lib, info)]);
 
@@ -2757,8 +2759,8 @@ fn source_set_with_libs(
         AbsPathBuf::assert_utf8(extra.path.as_std_path().to_owned()),
     );
     let classpath = vec![
-        hir::ClasspathEntry::Library(fixture.lib),
-        hir::ClasspathEntry::Library(extra.lib),
+        jvm_index::ClasspathEntry::Library(fixture.lib),
+        jvm_index::ClasspathEntry::Library(extra.lib),
     ];
     register_source_set_classpath(&mut db, &fixture, files, classpath, &[(extra.lib, info)]);
     (db, extra)
@@ -2772,7 +2774,7 @@ pub fn render_body_types(db: &TestDatabase, files: &[(&str, &str)]) -> String {
     for (i, (_, text)) in files.iter().enumerate() {
         let file_id = FileId::from_raw((i + 1) as u32);
         let tree = hir_def::java::plugin::tree(db, file_id);
-        let bodies = hir::file_body_tree(db, file_id);
+        let bodies = jvm_index::file_body_tree(db, file_id);
         let line_index = line_index::LineIndex::new(text);
         for (id, data) in all_items(&tree) {
             let header = match data {
@@ -2995,7 +2997,7 @@ fn render_annotations(db: &TestDatabase, files: &[(&str, &str)]) -> String {
     for (i, (_, text)) in files.iter().enumerate() {
         let file_id = FileId::from_raw((i + 1) as u32);
         let tree = hir_def::java::plugin::tree(db, file_id);
-        let bodies = hir::file_body_tree(db, file_id);
+        let bodies = jvm_index::file_body_tree(db, file_id);
         let src = AnnotationSource {
             text,
             bodies: &bodies,
@@ -3170,7 +3172,7 @@ pub fn render_body_diagnostic_spans(db: &TestDatabase, files: &[(&str, &str)]) -
     for (i, (_, text)) in files.iter().enumerate() {
         let file_id = FileId::from_raw((i + 1) as u32);
         let tree = hir_def::java::plugin::tree(db, file_id);
-        let bodies = hir::file_body_tree(db, file_id);
+        let bodies = jvm_index::file_body_tree(db, file_id);
         let line_index = line_index::LineIndex::new(text);
         for (id, data) in all_items(&tree) {
             let header = match data {
@@ -3383,7 +3385,10 @@ pub fn check_module_diagnostics(files: &[(&str, &str)]) -> String {
 /// The source-level diagnostics of the source files, rendered like
 /// [`check_class_diagnostics`]: one line per construct newer than the
 /// declared source level. Files with no level registered report nothing.
-pub fn check_level_diagnostics(level: hir::JavaLanguageLevel, files: &[(&str, &str)]) -> String {
+pub fn check_level_diagnostics(
+    level: jvm_index::JavaLanguageLevel,
+    files: &[(&str, &str)],
+) -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_source_set_at_level(&mut db, &fixture, files, Some(level));
@@ -3432,8 +3437,8 @@ fn render_level_diagnostics(db: &TestDatabase, files: &[(&str, &str)]) -> String
 /// workspace twice at two different levels, to prove a reload re-derives the
 /// report rather than serving the first level's memoized answer.
 pub fn check_level_diagnostics_across_reloads(
-    first: hir::JavaLanguageLevel,
-    second: hir::JavaLanguageLevel,
+    first: jvm_index::JavaLanguageLevel,
+    second: jvm_index::JavaLanguageLevel,
     files: &[(&str, &str)],
 ) -> String {
     let fixture = jdk_fixture();
@@ -3455,7 +3460,7 @@ pub fn check_level_diagnostics_across_reloads(
 /// the build system reports the project; only then do the source root and the
 /// project graph arrive. The pre-load answer must not survive the load.
 pub fn check_level_diagnostics_across_first_load(
-    level: hir::JavaLanguageLevel,
+    level: jvm_index::JavaLanguageLevel,
     files: &[(&str, &str)],
 ) -> String {
     let fixture = jdk_fixture();
@@ -3536,7 +3541,7 @@ fn render_release_diagnostics(db: &TestDatabase, files: &[(&str, &str)]) -> Stri
             ));
         }
         let tree = hir_def::java::plugin::tree(db, file_id);
-        let bodies = hir::file_body_tree(db, file_id);
+        let bodies = jvm_index::file_body_tree(db, file_id);
         for (id, _) in all_items(&tree) {
             let Some(types) = hir_ty::body_types(db, file_id, id) else {
                 continue;
@@ -3567,7 +3572,7 @@ pub fn check_methods(samples: &[(&str, TyBuilder, &str, &[TyBuilder])]) -> Strin
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::Classpath(vec![fixture.lib]);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![fixture.lib]);
 
     samples
         .iter()
@@ -3621,7 +3626,7 @@ pub fn check_source_methods_ctx(
         // the source set ([JLS §6.6]).
         None => source_context(&db, source_set.clone()),
     };
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
 
     let mut lines = files
         .iter()
@@ -3667,19 +3672,19 @@ pub fn check_methods_lib_ctx(
     std::fs::create_dir_all(&base).unwrap();
     let jar = base.join("lib.jar");
     build_jar(&jar, classes);
-    let lib = hir::LibraryId::from_file_path(jar.as_std_path()).unwrap();
+    let lib = jvm_index::LibraryId::from_file_path(jar.as_std_path()).unwrap();
     let mut db = TestDatabase::new();
-    let mut data = hir::ProjectGraphData::default();
+    let mut data = jvm_index::ProjectGraphData::default();
     data.libraries.insert(
         lib,
-        hir::LibraryInfo::new(
-            hir::LibraryKind::Jar,
+        jvm_index::LibraryInfo::new(
+            jvm_index::LibraryKind::Jar,
             AbsPathBuf::assert_utf8(jar.as_std_path().to_owned()),
         ),
     );
     data.jdk_libraries.push(lib);
-    hir::set_project_graph(&mut db, data);
-    let scope = hir::ResolutionScope::Classpath(vec![lib]);
+    jvm_index::set_project_graph(&mut db, data);
+    let scope = jvm_index::ResolutionScope::Classpath(vec![lib]);
 
     samples
         .iter()
@@ -3721,7 +3726,7 @@ pub fn check_source_methods_site(
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     let source_set = register_source_set(&mut db, &fixture, files);
-    let scope = hir::ResolutionScope::SourceSet(source_set);
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set);
 
     let mut lines = files
         .iter()

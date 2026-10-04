@@ -1,6 +1,6 @@
 //! Java item-tree walks used by the Java diagnostics collector.
 
-use hir::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
+use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 
 pub(crate) fn find_method(tree: &ItemTree, id: ItemId, name: &str) -> Option<ItemId> {
     match tree.data(id) {

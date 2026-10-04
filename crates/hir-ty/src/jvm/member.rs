@@ -36,7 +36,7 @@ pub enum ClassKey {
     /// class of the workspace, or a classpath (binary) name.
     Named(Name),
     /// A declaration with no canonical name ([§6.7]).
-    Local(hir::SourceClass),
+    Local(jvm_index::SourceClass),
 }
 /// The type parameters a *class* declares, with their bounds — the JVM view's
 /// answer, distinct from [`MethodTypeParam`], which carries a *method*'s own

@@ -136,7 +136,7 @@ impl Inference {
     pub(crate) fn solve(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
         constraints: Vec<Constraint>,
     ) -> Option<FxHashMap<u64, Ty>> {
@@ -158,7 +158,7 @@ impl Inference {
     pub(crate) fn drain_worklist(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
     ) -> bool {
         let mut worklist = std::mem::take(&mut self.worklist);
@@ -191,7 +191,7 @@ impl Inference {
     pub(crate) fn solve_after(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
     ) -> Option<FxHashMap<u64, Ty>> {
         if !self.drain_worklist(db, scope, phase) {
@@ -212,7 +212,7 @@ impl Inference {
     pub(crate) fn check_consistent(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
     ) -> bool {
         if !self.drain_worklist(db, scope, phase) {
@@ -242,7 +242,7 @@ impl Inference {
     /// variable (validated once it instantiates) or a *declared* type
     /// variable whose own bounds belong to its declaration ([§4.4]) — is not
     /// decidable here and is left to resolution.
-    fn validate_applied(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope) -> bool {
+    fn validate_applied(&self, db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope) -> bool {
         // §18.3.1: the applied equalities chain (`⟨?R = ?T⟩` with
         // `⟨?T = String⟩`), and the value an instantiated variable must satisfy
         // is the *end* of the chain — the raw entry still holds an inference

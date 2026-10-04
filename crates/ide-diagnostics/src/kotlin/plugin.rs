@@ -25,7 +25,7 @@ impl LanguageDiagnostics for Kotlin {
     }
 
     fn body_diagnostics(&self, sink: &mut DiagnosticSink, db: &dyn TyDatabase, file_id: FileId) {
-        let Some(tree) = hir::hir_def::kotlin::plugin::tree(db, file_id) else {
+        let Some(tree) = jvm_index::hir_def::kotlin::plugin::tree(db, file_id) else {
             return;
         };
         for (id, _) in tree.items.iter() {

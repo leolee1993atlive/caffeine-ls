@@ -6,11 +6,11 @@
 //! by one — keeps the order the writes must happen in (project graph first: it
 //! maps the `SourceRootId`s the root write assigns) inside the analysis layer.
 
-use hir::ProjectGraphData;
 use ide_db::{
     RootDatabase,
     base_db::{FileChange, SourceRoot},
 };
+use jvm_index::ProjectGraphData;
 use vfs::FileId;
 
 /// A unit of change to apply to the database in one write.
@@ -45,7 +45,7 @@ impl Change {
     /// change assigns (see [`Change::set_roots`]).
     pub(crate) fn apply(self, db: &mut RootDatabase) {
         if let Some(project_graph) = self.project_graph {
-            hir::set_project_graph(db, project_graph);
+            jvm_index::set_project_graph(db, project_graph);
         }
         self.source_change.apply(db);
     }

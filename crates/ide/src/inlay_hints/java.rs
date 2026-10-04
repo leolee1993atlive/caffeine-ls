@@ -161,26 +161,27 @@ fn collect(
     out: &mut Vec<InlayHintDetail>,
     pending: &mut Vec<nav::LibraryFileRef>,
 ) {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let language = tree.language;
     if language == LanguageKind::Unknown {
         // A file with no source root yet (or a non-JVM file) lowers to an empty
         // item tree and has no parse to read ranges from.
         return;
     }
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let source_file = ide_db::base_db::parse(db, file, language).syntax_node(language);
     let SourceFile::Java(parsed) = &source_file else {
         return;
     };
     let source = &parsed.syntax_node;
-    let map = hir::hir_def::db::ast_id_map(db, file, language);
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, language);
     // The locals a declaration form writes an initializer for: one pass over
     // the statement arena for the whole request, not one per item.
     let inits = initialized_locals(&bodies);
     for (_, body) in bodies.bodies.iter() {
         let Some(item) = body.owner else { continue };
-        let item_range = hir::hir_def::java::ranges::item_range(map, &source_file, &tree, item);
+        let item_range =
+            jvm_index::hir_def::java::ranges::item_range(map, &source_file, &tree, item);
         if !search.matches_item(item_range) {
             continue;
         }

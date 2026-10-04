@@ -47,7 +47,7 @@ use crate::{
 /// Whether the source class-like declaration is an `interface` (or
 /// `@interface`): its supertype set gains `java.lang.Object` explicitly
 /// ([JLS §4.10.2], [§9.1]).
-fn is_source_interface(db: &dyn TyDatabase, source: hir::SourceClass) -> bool {
+fn is_source_interface(db: &dyn TyDatabase, source: jvm_index::SourceClass) -> bool {
     let tree = hir_def::java::plugin::tree(db, source.file);
     matches!(
         item_data(&tree, source.item),
@@ -60,7 +60,7 @@ fn is_source_interface(db: &dyn TyDatabase, source: hir::SourceClass) -> bool {
 /// interface. A library class is not answered here.
 pub(crate) fn java_language_supertypes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: Ty,
 ) -> Vec<Ty> {
     let TyKind::Reference { args, .. } = ty.kind(db) else {
@@ -70,7 +70,7 @@ pub(crate) fn java_language_supertypes(
         return Vec::new();
     };
     match resolved {
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             let mut out = java_source_supertypes(db, source, args);
             if hir_def::java::plugin::declares_file(db, source.file)
                 && is_source_interface(db, source)
@@ -84,8 +84,10 @@ pub(crate) fn java_language_supertypes(
         }
         // A facade is not a Java declaration. The shared walk asks the file's
         // language; this arm only answers if a Java file is asked directly.
-        hir::Resolved::Facade { .. } => vec![Ty::reference(db, "java.lang.Object", Vec::new())],
-        hir::Resolved::Library(_) => Vec::new(),
+        jvm_index::Resolved::Facade { .. } => {
+            vec![Ty::reference(db, "java.lang.Object", Vec::new())]
+        }
+        jvm_index::Resolved::Library(_) => Vec::new(),
     }
 }
 
@@ -98,7 +100,7 @@ pub(crate) fn java_language_supertypes(
 /// `java.lang.Record`, `java.lang.annotation.Annotation`).
 pub(crate) fn java_source_supertypes(
     db: &dyn TyDatabase,
-    source: hir::SourceClass,
+    source: jvm_index::SourceClass,
     args: &[Ty],
 ) -> Vec<Ty> {
     // A class of another language: its own type layer answers, and a Java
@@ -111,7 +113,8 @@ pub(crate) fn java_source_supertypes(
         };
         let ty = Ty::reference(
             db,
-            hir::source_class_fqn(db, source.file, source.item).unwrap_or_else(|| Name::new("")),
+            jvm_index::source_class_fqn(db, source.file, source.item)
+                .unwrap_or_else(|| Name::new("")),
             args.to_vec(),
         );
         let scope = scope_for_file(db, source.file);
@@ -193,8 +196,8 @@ pub(crate) fn java_source_supertypes(
 /// `java.lang.Enum<E>`, where `E` is the enum's own type. The enum type is
 /// never generic ([§8.9]), so the self type argument is the enum's fully
 /// qualified name with no type arguments of its own.
-fn enum_superclass(db: &dyn TyDatabase, source: hir::SourceClass) -> ItemTypeRef {
-    let fqn = hir::source_class_fqn(db, source.file, source.item)
+fn enum_superclass(db: &dyn TyDatabase, source: jvm_index::SourceClass) -> ItemTypeRef {
+    let fqn = jvm_index::source_class_fqn(db, source.file, source.item)
         .map(|name| name.as_str().to_owned())
         .unwrap_or_default();
     ItemTypeRef::synthetic(TypeRef::Reference {
@@ -210,10 +213,10 @@ fn enum_superclass(db: &dyn TyDatabase, source: hir::SourceClass) -> ItemTypeRef
 /// a source set's own classes, then its classpath entries.
 fn resolve_name(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     name: &Name,
-) -> Option<hir::Resolved> {
-    hir::fqn_resolve(db, scope, name.as_str())
+) -> Option<jvm_index::Resolved> {
+    jvm_index::fqn_resolve(db, scope, name.as_str())
 }
 
 /// The declared constant names of the named type, when it is an `enum`
@@ -223,15 +226,15 @@ fn resolve_name(
 /// yields `None`.
 pub(crate) fn enum_constants(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<Vec<Name>> {
     let (name, _) = ty.as_reference(db)?;
     match resolve_name(db, scope, name)? {
         // A Kotlin file's facade is no enum.
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Library(library) => {
-            let record = hir::class_record(db, &library)?;
+        jvm_index::Resolved::Facade { .. } => None,
+        jvm_index::Resolved::Library(library) => {
+            let record = jvm_index::class_record(db, &library)?;
             let classfile::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
                 return None;
             };
@@ -249,7 +252,7 @@ pub(crate) fn enum_constants(
                     .collect(),
             )
         }
-        hir::Resolved::Source(source) => {
+        jvm_index::Resolved::Source(source) => {
             let tree = hir_def::java::plugin::tree(db, source.file);
             let ItemData::Enum(data) = item_data(&tree, source.item)? else {
                 return None;
@@ -279,13 +282,13 @@ pub(crate) fn enum_constants(
 /// language asks the registry instead ([`crate::jvm::member_set::class_kind`]).
 pub(crate) fn class_like_and_final(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<(bool, bool)> {
     let (name, _) = ty.as_reference(db)?;
     let resolved = resolve_name(db, scope, name)?;
     let (kind, final_) = match &resolved {
-        hir::Resolved::Library(_) => crate::lang::classfile()
+        jvm_index::Resolved::Library(_) => crate::lang::classfile()
             .member_source()
             .kind(db, &resolved)?,
         other => crate::java::plugin::JAVA.kind(db, other)?,
@@ -300,7 +303,7 @@ pub(crate) fn class_like_and_final(
 /// callers stay permissive there.
 pub(crate) fn is_interface_type(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Option<bool> {
     class_like_and_final(db, scope, ty).map(|(class_like, _)| !class_like)
@@ -318,7 +321,7 @@ pub(crate) fn is_interface_type(
 /// optionally followed by a widening primitive conversion).
 pub fn is_assignable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     src: &Ty,
     dst: &Ty,
 ) -> bool {
@@ -443,7 +446,7 @@ pub fn is_assignable(
 /// peeled on both sides.
 fn unchecked_conversion(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     src: &Ty,
     dst: &Ty,
 ) -> bool {
@@ -535,7 +538,7 @@ fn unchecked_conversion(
 /// boxing/unboxing are only admitted in the loose phase ([§5.2]).
 pub(crate) fn strict_conversion(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     arg: &Ty,
     param: &Ty,
 ) -> bool {

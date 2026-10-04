@@ -1,5 +1,5 @@
 //! Snapshots of source-class indexing and subtyping: classes declared in
-//! workspace sources resolve as [`hir::Resolved::Source`] and participate in
+//! workspace sources resolve as [`jvm_index::Resolved::Source`] and participate in
 //! the supertype/subtype walks of [JLS §4.10.2] exactly like library classes.
 //! The source set's own classes shadow classpath libraries for name
 //! resolution (§6.5.5).

@@ -11,7 +11,7 @@
 #[macro_use]
 mod common;
 
-use hir::{LibraryInfo, LibraryKind};
+use jvm_index::{LibraryInfo, LibraryKind};
 use vfs::AbsPathBuf;
 
 use crate::common::{
@@ -101,8 +101,8 @@ fn check_with_libs(specs: &[common::ClassSpec<'static>], files: &[(&str, &str)])
         AbsPathBuf::assert_utf8(extra.path.as_std_path().to_owned()),
     );
     let classpath = vec![
-        hir::ClasspathEntry::Library(fixture.lib),
-        hir::ClasspathEntry::Library(extra.lib),
+        jvm_index::ClasspathEntry::Library(fixture.lib),
+        jvm_index::ClasspathEntry::Library(extra.lib),
     ];
     register_source_set_classpath(&mut db, &fixture, files, classpath, &[(extra.lib, info)]);
 

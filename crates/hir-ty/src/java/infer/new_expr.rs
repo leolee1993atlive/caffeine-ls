@@ -85,8 +85,8 @@ impl InferCtx<'_> {
         let TyKind::Reference { name, .. } = class_ty.kind(self.db) else {
             return class_ty;
         };
-        let constructor_name = match hir::fqn_resolve(self.db, &self.scope, name.as_str()) {
-            Some(hir::Resolved::Library(_)) => "<init>".to_owned(),
+        let constructor_name = match jvm_index::fqn_resolve(self.db, &self.scope, name.as_str()) {
+            Some(jvm_index::Resolved::Library(_)) => "<init>".to_owned(),
             _ => name.simple_name().to_owned(),
         };
         // §15.9/[§15.12.2.2]: a class instance creation resolves its
@@ -240,8 +240,8 @@ impl InferCtx<'_> {
                         // skipped: their member records now always surface `<init>`
                         // when loaded ([`LibraryIndex`]), so an empty set there
                         // means an incomplete fixture, not a missing constructor.
-                        if let Some(hir::Resolved::Source(_)) =
-                            hir::fqn_resolve(self.db, &self.scope, name.as_str())
+                        if let Some(jvm_index::Resolved::Source(_)) =
+                            jvm_index::fqn_resolve(self.db, &self.scope, name.as_str())
                         {
                             self.report(TypeError::NoSuchConstructor { expr, name: ctor });
                         }
@@ -281,8 +281,8 @@ impl InferCtx<'_> {
         let non_instantiable = match class_ty.kind(self.db) {
             TyKind::TypeVar { .. } => true,
             TyKind::Reference { name, .. } => {
-                let Some(hir::Resolved::Source(source)) =
-                    hir::fqn_resolve(self.db, &self.scope, name.as_str())
+                let Some(jvm_index::Resolved::Source(source)) =
+                    jvm_index::fqn_resolve(self.db, &self.scope, name.as_str())
                 else {
                     return false;
                 };
@@ -410,17 +410,18 @@ impl InferCtx<'_> {
 
     /// and unresolvable names.
     pub(super) fn class_type_var_names(&self, fqn: &Name) -> Vec<Ty> {
-        let Some(resolved) = hir::fqn_resolve(self.db, &self.scope, fqn.as_str()) else {
+        let Some(resolved) = jvm_index::fqn_resolve(self.db, &self.scope, fqn.as_str()) else {
             return Vec::new();
         };
         let resolved = resolved.clone();
         let names: Vec<Name> = match &resolved {
             // A Kotlin file's facade declares no type parameters.
-            hir::Resolved::Facade { .. } => Vec::new(),
-            hir::Resolved::Library(library) => {
-                let Some(info) =
-                    hir::class_generic_info(self.db, &hir::Resolved::Library(library.clone()))
-                else {
+            jvm_index::Resolved::Facade { .. } => Vec::new(),
+            jvm_index::Resolved::Library(library) => {
+                let Some(info) = jvm_index::class_generic_info(
+                    self.db,
+                    &jvm_index::Resolved::Library(library.clone()),
+                ) else {
                     return Vec::new();
                 };
                 let interner = &self.db.hir_state().interner;
@@ -429,7 +430,7 @@ impl InferCtx<'_> {
                     .map(|tp| Name::new(interner.resolve(&tp.name)))
                     .collect()
             }
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(self.db, source.file);
                 let declared = match crate::java::resolve::item_data(&tree, source.item) {
                     Some(hir_def::java::item_tree::ItemData::Class(d)) => Some(&d.type_params),
@@ -450,15 +451,17 @@ impl InferCtx<'_> {
                     // Unreachable — a facade has no type parameters, so `names`
                     // is empty and this closure runs never — but the scope must
                     // type-check: a variable with no declaring declaration.
-                    hir::Resolved::Facade { .. } => TypeVarScope::Unnamed { name: name.clone() },
-                    hir::Resolved::Library(library) => TypeVarScope::LibraryClass {
+                    jvm_index::Resolved::Facade { .. } => {
+                        TypeVarScope::Unnamed { name: name.clone() }
+                    }
+                    jvm_index::Resolved::Library(library) => TypeVarScope::LibraryClass {
                         owner: {
                             let interner = &self.db.hir_state().interner;
                             Name::new(interner.resolve(&library.entry.fqn))
                         },
                         name: name.clone(),
                     },
-                    hir::Resolved::Source(source) => TypeVarScope::Class {
+                    jvm_index::Resolved::Source(source) => TypeVarScope::Class {
                         file: source.file,
                         item: source.item,
                         name: name.clone(),
@@ -474,16 +477,17 @@ impl InferCtx<'_> {
         &self,
         fqn: &Name,
     ) -> Vec<crate::jvm::member::MethodTypeParam> {
-        let Some(resolved) = hir::fqn_resolve(self.db, &self.scope, fqn.as_str()) else {
+        let Some(resolved) = jvm_index::fqn_resolve(self.db, &self.scope, fqn.as_str()) else {
             return Vec::new();
         };
         match resolved {
             // A Kotlin file's facade declares no type parameters.
-            hir::Resolved::Facade { .. } => Vec::new(),
-            hir::Resolved::Library(library) => {
-                let Some(info) =
-                    hir::class_generic_info(self.db, &hir::Resolved::Library(library.clone()))
-                else {
+            jvm_index::Resolved::Facade { .. } => Vec::new(),
+            jvm_index::Resolved::Library(library) => {
+                let Some(info) = jvm_index::class_generic_info(
+                    self.db,
+                    &jvm_index::Resolved::Library(library.clone()),
+                ) else {
                     return Vec::new();
                 };
                 let interner = &self.db.hir_state().interner;
@@ -512,7 +516,7 @@ impl InferCtx<'_> {
                     })
                     .collect()
             }
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(self.db, source.file);
                 // §6.5.5/§6.3: a bound is resolved in the scope of the class
                 // that *declares* the type parameter, not in the use site's:

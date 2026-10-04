@@ -102,7 +102,7 @@ fn check_capture(samples: &[(&str, TyBuilder)]) -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::JdkBuiltins;
+    let scope = jvm_index::ResolutionScope::JdkBuiltins;
 
     samples
         .iter()
@@ -167,7 +167,7 @@ fn check_capture_method() -> String {
     let fixture = jdk_fixture();
     let mut db = TestDatabase::new();
     register_jdk(&mut db, &fixture);
-    let scope = hir::ResolutionScope::JdkBuiltins;
+    let scope = jvm_index::ResolutionScope::JdkBuiltins;
     let receiver = list_of(
         &db,
         wild(

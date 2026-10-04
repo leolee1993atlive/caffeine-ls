@@ -461,7 +461,7 @@ fn primitive_of_mapped(name: &Name) -> Option<(PrimitiveType, &'static str)> {
 /// A Kotlin classifier the table does not name keeps its Kotlin spelling, which
 /// is the name the classfile carries for a top-level class (`kotlin.ranges
 /// .IntRange` *is* `kotlin/ranges/IntRange`) and the name the Java layer keys a
-/// *source* declaration by ([`hir::source_class_fqn`]); the compiler spells a
+/// *source* declaration by ([`jvm_index::source_class_fqn`]); the compiler spells a
 /// nested segment `$` ([JVMS §4.2](https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.2))
 /// and this conversion keeps the dotted form, so a nested library classifier the
 /// table does not name is one name away from its binary spelling — a recorded

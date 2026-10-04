@@ -5,7 +5,7 @@ use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use vfs::FileId;
 
-use hir::hir_def::java::item_tree::ItemData;
+use jvm_index::hir_def::java::item_tree::ItemData;
 
 use crate::RootDatabase;
 use crate::symbols::{DocumentSymbol, ItemId};
@@ -22,9 +22,9 @@ use crate::symbols::{DocumentSymbol, ItemId};
 /// ranges target its record component, and the canonical constructor's
 /// ranges target the record declaration.
 pub(super) fn document_symbols(db: &RootDatabase, file_id: FileId) -> Vec<DocumentSymbol> {
-    let symbols = hir::file_symbols(db, file_id);
+    let symbols = jvm_index::file_symbols(db, file_id);
     let names: FxHashSet<&str> = symbols.iter().map(|symbol| symbol.name.as_str()).collect();
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let ctx = crate::symbols::range_ctx(db, file_id, tree.language);
     let mut out = Vec::with_capacity(symbols.len() + 1);
     if !symbols.is_empty() {
@@ -48,12 +48,12 @@ pub(super) fn document_symbols(db: &RootDatabase, file_id: FileId) -> Vec<Docume
         // the whole body; its selection points at the component list itself.
         let (range, name_range) = match (ctx.as_ref(), data) {
             (Some((map, source)), ItemData::Record(_)) => (
-                hir::hir_def::java::ranges::record_header_range(map, source, &tree, item),
-                hir::hir_def::java::ranges::record_components_range(map, source, &tree, item),
+                jvm_index::hir_def::java::ranges::record_header_range(map, source, &tree, item),
+                jvm_index::hir_def::java::ranges::record_components_range(map, source, &tree, item),
             ),
             (Some((map, source)), _) => (
-                hir::hir_def::java::ranges::item_range(map, source, &tree, item),
-                hir::hir_def::java::ranges::item_name_range(map, source, &tree, item),
+                jvm_index::hir_def::java::ranges::item_range(map, source, &tree, item),
+                jvm_index::hir_def::java::ranges::item_name_range(map, source, &tree, item),
             ),
             // An unknown-language file has no parse; no ranges to point at.
             (None, _) => (None, None),
@@ -79,9 +79,9 @@ pub(super) fn document_symbols(db: &RootDatabase, file_id: FileId) -> Vec<Docume
 /// rewritten file's tree can shrink under a stale id, so the item is bounds
 /// checked before the arena is read.
 fn hir_def_item_data<'a>(
-    tree: &'a hir::hir_def::java::item_tree::ItemTree,
+    tree: &'a jvm_index::hir_def::java::item_tree::ItemTree,
     item: ItemId,
-) -> Option<&'a hir::hir_def::java::item_tree::ItemData> {
+) -> Option<&'a jvm_index::hir_def::java::item_tree::ItemData> {
     ((item.0.0 as usize) < tree.items.len()).then(|| tree.data(item))
 }
 
@@ -99,7 +99,7 @@ fn record_members(
         return Vec::new();
     };
     let mut members = Vec::with_capacity(record.components.len() + 1);
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let ctx = crate::symbols::range_ctx(db, file_id, tree.language);
     let component_tys: Arc<Vec<String>> = Arc::new(
         hir_ty::record_component_types(db, file_id, symbol.item.unwrap())
@@ -129,12 +129,12 @@ fn record_members(
         let component_range = ctx
             .as_ref()
             .and_then(|(map, source)| {
-                hir::hir_def::java::ranges::component_range(map, source, component)
+                jvm_index::hir_def::java::ranges::component_range(map, source, component)
             })
             .unwrap_or_default();
         members.push(DocumentSymbol {
             name: format!("{}.{simple}", symbol.name),
-            kind: hir::SourceSymbolKind::Method,
+            kind: jvm_index::SourceSymbolKind::Method,
             // The accessor's range and selection range both target its whole
             // component declaration (`int x`, not just the name) — the
             // "definition" of the member.
@@ -175,7 +175,7 @@ fn record_members(
             .join(", ");
         members.push(DocumentSymbol {
             name: format!("{}.{simple}", symbol.name),
-            kind: hir::SourceSymbolKind::Method,
+            kind: jvm_index::SourceSymbolKind::Method,
             range: symbol.range,
             name_range: symbol.name_range,
             display_name: format!("{simple}({params})"),
@@ -188,7 +188,7 @@ fn record_members(
 
 /// The synthesized package symbol of a Java file.
 pub(super) fn package_symbol(db: &RootDatabase, file_id: FileId) -> DocumentSymbol {
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let name = tree.package.as_ref().map_or_else(
         || "<default package>".to_owned(),
         |name| name.as_str().to_owned(),
@@ -196,14 +196,14 @@ pub(super) fn package_symbol(db: &RootDatabase, file_id: FileId) -> DocumentSymb
     let range = crate::symbols::range_ctx(db, file_id, tree.language)
         .and_then(|(map, source)| {
             tree.package_decls.last().and_then(|decl| {
-                hir::hir_def::java::ranges::package_name_range(&map, &source, *decl)
+                jvm_index::hir_def::java::ranges::package_name_range(&map, &source, *decl)
             })
         })
         .unwrap_or_default();
     DocumentSymbol {
         name: name.clone(),
         display_name: name,
-        kind: hir::SourceSymbolKind::Package,
+        kind: jvm_index::SourceSymbolKind::Package,
         range,
         name_range: range,
         detail: None,
@@ -218,7 +218,7 @@ pub(super) fn package_symbol(db: &RootDatabase, file_id: FileId) -> DocumentSymb
 fn symbol_display_name(
     db: &RootDatabase,
     file_id: FileId,
-    symbol: &hir::SourceSymbol,
+    symbol: &jvm_index::SourceSymbol,
     top_level: bool,
 ) -> String {
     let simple = symbol.name.simple_name();
@@ -226,8 +226,10 @@ fn symbol_display_name(
         return simple.to_owned();
     }
     match symbol.kind {
-        hir::SourceSymbolKind::Method => method_signature(db, file_id, symbol.item, simple, true),
-        hir::SourceSymbolKind::Field => {
+        jvm_index::SourceSymbolKind::Method => {
+            method_signature(db, file_id, symbol.item, simple, true)
+        }
+        jvm_index::SourceSymbolKind::Field => {
             format!(
                 "{simple}: {}",
                 crate::symbols::item_ty(db, file_id, symbol.item)
@@ -241,15 +243,15 @@ fn symbol_display_name(
 /// their fully qualified name; nested types show their kind and simple name;
 /// methods, fields, enum constants and the package show none — their signature
 /// is already part of [`DocumentSymbol::display_name`].
-fn symbol_detail(symbol: &hir::SourceSymbol, top_level: bool) -> Option<String> {
+fn symbol_detail(symbol: &jvm_index::SourceSymbol, top_level: bool) -> Option<String> {
     let simple = symbol.name.simple_name();
     if top_level {
         return Some(symbol.name.as_str().to_owned());
     }
     match symbol.kind {
-        hir::SourceSymbolKind::Method
-        | hir::SourceSymbolKind::Field
-        | hir::SourceSymbolKind::EnumConstant => None,
+        jvm_index::SourceSymbolKind::Method
+        | jvm_index::SourceSymbolKind::Field
+        | jvm_index::SourceSymbolKind::EnumConstant => None,
         kind => Some(format!("{} {simple}", kind.label())),
     }
 }
@@ -262,12 +264,12 @@ fn symbol_detail(symbol: &hir::SourceSymbol, top_level: bool) -> Option<String> 
 pub(crate) fn method_signature(
     db: &RootDatabase,
     file_id: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
     simple: &str,
     include_return: bool,
 ) -> String {
     let is_constructor = matches!(
-        hir::hir_def::java::plugin::tree(db, file_id).data(item),
+        jvm_index::hir_def::java::plugin::tree(db, file_id).data(item),
         ItemData::Method(method) if method.is_constructor()
     );
     let ret = if include_return && !is_constructor {
@@ -284,9 +286,9 @@ pub(crate) fn method_signature(
 fn render_params(
     db: &RootDatabase,
     file_id: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
 ) -> String {
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let varargs = matches!(
         tree.data(item),
         ItemData::Method(method) if method.sig.params.last().is_some_and(|param| param.varargs)
@@ -305,13 +307,13 @@ pub(super) fn source_symbol_range(
     file_id: FileId,
     item: ItemId,
 ) -> Option<TextRange> {
-    if !hir::file_symbols(db, file_id)
+    if !jvm_index::file_symbols(db, file_id)
         .iter()
         .any(|symbol| symbol.item == item)
     {
         return None;
     }
-    let tree = hir::hir_def::java::plugin::tree(db, file_id);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let (map, source) = crate::symbols::range_ctx(db, file_id, tree.language)?;
-    hir::hir_def::java::ranges::item_range(&map, &source, &tree, item)
+    jvm_index::hir_def::java::ranges::item_range(&map, &source, &tree, item)
 }

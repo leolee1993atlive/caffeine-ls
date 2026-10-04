@@ -110,7 +110,7 @@ pub(crate) struct ValueCtx<'a> {
     pub db: &'a dyn TyDatabase,
     pub file: FileId,
     pub item: ItemId,
-    pub scope: &'a hir::ResolutionScope,
+    pub scope: &'a jvm_index::ResolutionScope,
     pub resolver: &'a Resolver,
     pub bodies: &'a BodyTree,
 }
@@ -562,7 +562,7 @@ pub(crate) fn name_target(
         // declaring type of a static import that could bind the name
         // ([§7.5.4]).
         let mut candidates: Vec<Name> = Vec::new();
-        if let Some(own) = hir::source_class_fqn(db, cx.file, cx.item) {
+        if let Some(own) = jvm_index::source_class_fqn(db, cx.file, cx.item) {
             candidates.push(own);
         }
         candidates.extend(cx.resolver.enclosing().iter().cloned());
@@ -683,14 +683,15 @@ fn field_constant(
         let Some(fqn) = field.owner.as_fqn() else {
             return FieldValue::Unreadable;
         };
-        let Some(hir::Resolved::Library(resolved)) = hir::fqn_resolve(db, cx.scope, fqn.as_str())
+        let Some(jvm_index::Resolved::Library(resolved)) =
+            jvm_index::fqn_resolve(db, cx.scope, fqn.as_str())
         else {
             return FieldValue::Unreadable;
         };
-        let Some(record) = hir::class_record(db, &resolved) else {
+        let Some(record) = jvm_index::class_record(db, &resolved) else {
             return FieldValue::Unreadable;
         };
-        let hir::ClassOrModuleRecord::Class(class) = record.as_ref() else {
+        let jvm_index::ClassOrModuleRecord::Class(class) = record.as_ref() else {
             return FieldValue::Unreadable;
         };
         // §4.5 identifies a field by its *name and* descriptor: a class may
@@ -727,7 +728,7 @@ fn field_constant(
     };
     let scope = scope_for_file(db, file);
     let resolver = Resolver::for_item(db, file, &tree, item);
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let nested = ValueCtx {
         db,
         file,
@@ -752,7 +753,7 @@ fn field_constant(
 ///
 /// [JVMS §4.4]: https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.4
 /// [§5.2]: https://docs.oracle.com/javase/specs/jls/se26/html/jls-5.html#jls-5.2
-fn library_int(value: &ClassfileValue<hir::Symbol>) -> Option<i64> {
+fn library_int(value: &ClassfileValue<jvm_index::Symbol>) -> Option<i64> {
     let ClassfileValue::Primitive(primitive) = value else {
         return None;
     };
@@ -773,7 +774,10 @@ fn library_int(value: &ClassfileValue<hir::Symbol>) -> Option<i64> {
 /// with.
 ///
 /// [JVMS §4.4]: https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.4
-fn library_string(db: &dyn TyDatabase, value: &ClassfileValue<hir::Symbol>) -> Option<String> {
+fn library_string(
+    db: &dyn TyDatabase,
+    value: &ClassfileValue<jvm_index::Symbol>,
+) -> Option<String> {
     let ClassfileValue::String(symbol) = value else {
         return None;
     };
@@ -947,7 +951,7 @@ pub fn suppress_warnings_values(
     let context = innermost_item(map, &source, &tree, target).map(|item| {
         let scope = scope_for_file(db, file);
         let resolver = Resolver::for_item(db, file, &tree, item);
-        let bodies = hir::file_body_tree(db, file);
+        let bodies = jvm_index::file_body_tree(db, file);
         (item, scope, resolver, bodies)
     });
     let cx = context
@@ -1393,7 +1397,7 @@ fn demote(kind: ConstKind) -> ConstKind {
 fn type_of_name(cx: &ValueCtx<'_>, name: &Name) -> Option<Ty> {
     let fqn = candidate_fqns(cx.resolver, name)
         .into_iter()
-        .find(|candidate| hir::fqn_resolve(cx.db, cx.scope, candidate.as_str()).is_some())?;
+        .find(|candidate| jvm_index::fqn_resolve(cx.db, cx.scope, candidate.as_str()).is_some())?;
     Some(Ty::reference(cx.db, fqn.as_str(), Vec::new()))
 }
 

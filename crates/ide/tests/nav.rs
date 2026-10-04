@@ -2231,7 +2231,7 @@ class Explicit constructor(val a: Int)
 
 /// Goto-definition on the keyword that introduces a constructor, an accessor or
 /// an `init` block answers that declaration, at the keyword itself — the range
-/// [`hir::hir_def::kotlin::ranges::item_name_range`] resolves for an item that
+/// [`jvm_index::hir_def::kotlin::ranges::item_name_range`] resolves for an item that
 /// declares no name of its own.
 #[test]
 fn goto_kotlin_introducing_keywords() {

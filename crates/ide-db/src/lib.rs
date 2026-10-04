@@ -2,13 +2,13 @@ use std::fmt;
 
 pub use ::line_index;
 pub use base_db;
-use hir::hir_expand::files::FileRangeWrapper;
+use jvm_index::hir_expand::files::FileRangeWrapper;
 
 use base_db::{
     DepsMap, FALLBACK_SOURCE_ROOT, FileSourceRootInput, FileText, Files, Nonce, SourceDatabase,
     SourceRoot, SourceRootId, SourceRootInput,
 };
-use hir::{HirDatabase, HirState, JavaDatabase, JvmDatabase, KotlinDatabase};
+use jvm_index::{HirDatabase, HirState, JavaDatabase, JvmDatabase, KotlinDatabase};
 use line_index::LineIndex;
 use salsa::Durability;
 use triomphe::Arc;

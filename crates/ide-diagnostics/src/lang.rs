@@ -56,7 +56,7 @@ pub(crate) fn for_file(
     db: &dyn TyDatabase,
     file: FileId,
 ) -> Option<&'static dyn LanguageDiagnostics> {
-    diagnostics(hir::file_item_tree(db, file).language())
+    diagnostics(jvm_index::file_item_tree(db, file).language())
 }
 
 /// The kinds the registered languages answer for — the completeness check the

@@ -4,7 +4,7 @@
 //! keywords, modifiers, literals, operators and comments ([`lexical`]), and one
 //! identifier pass for declarations, references and types ([`identifiers`]).
 //! This pass is not ported to the Kotlin model yet — the item tree the
-//! declaration layer lowers ([`hir::hir_def::kotlin::item_tree`]), the body IR
+//! declaration layer lowers ([`jvm_index::hir_def::kotlin::item_tree`]), the body IR
 //! and the inference, which is what [`crate::highlight::java`] reads — so
 //! everything below the literal layer is a syntactic approximation rather than
 //! a resolved one.

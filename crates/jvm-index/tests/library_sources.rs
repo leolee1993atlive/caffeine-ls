@@ -1,6 +1,6 @@
 //! Library source lookup: archive entry → canonical type name, the path an
 //! entry materializes to, and the `Pending`/`Loaded` state of a declaration
-//! (see `hir::lib_source`).
+//! (see `jvm_index::lib_source`).
 
 // The shared fixture module carries helpers this target does not use (the
 // classfile/jar builders belong to the other test targets).
@@ -10,7 +10,7 @@ mod common;
 use common::{
     LibrarySourcesFixture, Root, RootFile, build_with_library_sources, fixture, main_source_set,
 };
-use hir::{LibrarySourceDecl, library_source_decl, library_source_for_file};
+use jvm_index::{LibrarySourceDecl, library_source_decl, library_source_for_file};
 use project_model::LibraryId;
 use vfs::FileId;
 
@@ -282,7 +282,9 @@ fun factory() {
                 assert_eq!(target, file, "{fqn}");
                 assert_eq!(library_source_for_file(&db, target), Some(library));
                 assert_eq!(
-                    hir::source_class_fqn(&db, target, item).unwrap().as_str(),
+                    jvm_index::source_class_fqn(&db, target, item)
+                        .unwrap()
+                        .as_str(),
                     fqn.replace('$', "."),
                     "{fqn} must select its own declaration"
                 );

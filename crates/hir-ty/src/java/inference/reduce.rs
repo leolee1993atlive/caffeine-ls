@@ -16,7 +16,7 @@ impl Inference {
     pub(super) fn reduce_sub(
         &mut self,
         db: &dyn TyDatabase,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         phase: InvocationPhase,
         s: &Ty,
         t: &Ty,
@@ -520,7 +520,7 @@ impl Inference {
 /// The phase conversion of a proper type pair.
 fn convertible(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     phase: &InvocationPhase,
     s: &Ty,
     t: &Ty,

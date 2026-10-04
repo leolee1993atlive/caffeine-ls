@@ -29,7 +29,7 @@
 //! the enclosing classifiers (innermost first), the file's own package, then
 //! the star imports. Each candidate is turned into a declaration by
 //! [`declaration_by_fqn`]: a class-like declaration through
-//! [`hir::fqn_resolve`] — which honors classpath order and finds library
+//! [`jvm_index::fqn_resolve`] — which honors classpath order and finds library
 //! classes — and any other source declaration (a function, a property, a type
 //! alias) through the workspace symbol index.
 //!
@@ -40,11 +40,11 @@ use rowan::{NodeOrToken, TextRange, TextSize};
 use rustc_hash::FxHashSet;
 use syntax::kotlin::{Lang, SyntaxKind as K};
 
-use hir::hir_def::kotlin::item_tree::{
+use ide_db::base_db::parse;
+use jvm_index::hir_def::kotlin::item_tree::{
     DEFAULT_IMPORTS, KotlinImportItem, KotlinItemData, KotlinItemTree,
 };
-use hir::hir_def::kotlin::ranges;
-use ide_db::base_db::parse;
+use jvm_index::hir_def::kotlin::ranges;
 use vfs::FileId;
 
 use super::{HoverInfo, LibraryFileRef, NavigationTarget, ReferenceTarget, RootDatabase};
@@ -153,7 +153,7 @@ pub(crate) fn pending_library_files(
     file: FileId,
     offset: TextSize,
 ) -> Vec<LibraryFileRef> {
-    let mut seen: FxHashSet<(hir::LibraryId, String)> = FxHashSet::default();
+    let mut seen: FxHashSet<(jvm_index::LibraryId, String)> = FxHashSet::default();
     let mut out = Vec::new();
     for resolution in resolutions(db, file, offset) {
         let Resolution::Pending(pending) = resolution else {
@@ -211,7 +211,7 @@ pub(crate) fn hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
 /// rule the Java hover uses for its own expression answers.
 fn expression_hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<HoverInfo> {
     let ctx = Ctx::new(db, file)?;
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     // A declaration's *initializer* expressions carry types too — a property
     // writes one in place of a body — so every item is asked, and the
     // candidates are the expressions *of this item* ([`KotlinBodyTypes::exprs`]
@@ -276,18 +276,18 @@ fn hover_resolution(db: &RootDatabase, resolution: &Resolution) -> Option<HoverI
 
 /// The rendered Kotlin signature of a declaration: `fun f(x: Int): String`,
 /// `val x: Int`, `class Point`, with its modifiers. Types render through the
-/// item tree's own display ([`hir::hir_def::kotlin::pretty::display_type`]),
+/// item tree's own display ([`jvm_index::hir_def::kotlin::pretty::display_type`]),
 /// so the text is the Kotlin spelling of the declared type.
 ///
 /// Shared with the inlay-hint layer, which renders a callable's signature as
 /// the tooltip of its parameter-name hints.
 pub(crate) fn render_signature(
     tree: &KotlinItemTree,
-    item: hir::hir_def::kotlin::item_tree::ItemId,
+    item: jvm_index::hir_def::kotlin::item_tree::ItemId,
 ) -> String {
-    use hir::hir_def::kotlin::pretty::display_type;
+    use jvm_index::hir_def::kotlin::pretty::display_type;
 
-    fn params(params: &[hir::hir_def::kotlin::item_tree::KotlinParam]) -> String {
+    fn params(params: &[jvm_index::hir_def::kotlin::item_tree::KotlinParam]) -> String {
         params
             .iter()
             .map(|parameter| {
@@ -397,7 +397,10 @@ pub(crate) fn class_declaration(
 }
 
 /// The item of `ctx` whose declared *name* is `range`.
-fn item_of_range(ctx: &Ctx, range: TextRange) -> Option<hir::hir_def::kotlin::item_tree::ItemId> {
+fn item_of_range(
+    ctx: &Ctx,
+    range: TextRange,
+) -> Option<jvm_index::hir_def::kotlin::item_tree::ItemId> {
     all_items(ctx)
         .into_iter()
         .find(|(_, item)| ctx.name_range(*item) == Some(range))
@@ -452,7 +455,7 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
     let Some(ctx) = Ctx::new(db, file) else {
         return Vec::new();
     };
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     // A *local* binding's own name is a declaration of the body — it is no item
     // of the file, so `self_target` cannot answer it.
     if let Some((local, range)) = bodies
@@ -693,7 +696,7 @@ fn type_resolution(
 
 /// The declaration of the qualified name `fqn` in `file`'s scope.
 ///
-/// A class-like declaration resolves through [`hir::fqn_resolve`], which walks
+/// A class-like declaration resolves through [`jvm_index::fqn_resolve`], which walks
 /// the classpath in order and finds library classes; any other source
 /// declaration (a top-level function or property, a type alias, a member) is
 /// looked up in the workspace symbol index by its exact qualified name.
@@ -702,17 +705,17 @@ fn declaration_by_fqn(db: &RootDatabase, file: FileId, fqn: &str) -> Option<Reso
         return None;
     }
     let scope = hir_ty::scope_for_file(db, file);
-    if let Some(resolved) = hir::fqn_resolve(db, &scope, fqn) {
+    if let Some(resolved) = jvm_index::fqn_resolve(db, &scope, fqn) {
         return match &resolved {
-            hir::Resolved::Source(class) => Some(Resolution::Decl {
+            jvm_index::Resolved::Source(class) => Some(Resolution::Decl {
                 file: class.file,
                 range: declaration_name_range(db, class.file, class.item)?,
                 name: simple_name(fqn),
             }),
             // A Kotlin file's facade class is synthesized: it has no
             // declaration to navigate to.
-            hir::Resolved::Facade { .. } => None,
-            hir::Resolved::Library(class) => {
+            jvm_index::Resolved::Facade { .. } => None,
+            jvm_index::Resolved::Library(class) => {
                 library_class_resolution(db, class.library, resolved.fqn(db).as_str())
             }
         };
@@ -722,7 +725,7 @@ fn declaration_by_fqn(db: &RootDatabase, file: FileId, fqn: &str) -> Option<Reso
     // name. A *member* (a function, a property, a type alias) is indexed under
     // `Enclosing.simple`, so its FQN is exactly what an import writes.
     for source_set in registered_source_sets(db) {
-        let index = hir::source_set_symbols(db, source_set);
+        let index = jvm_index::source_set_symbols(db, source_set);
         for reference in index.lookup_fqn_substring(fqn) {
             if reference.symbol.name.as_str() != fqn {
                 continue;
@@ -742,17 +745,17 @@ fn declaration_by_fqn(db: &RootDatabase, file: FileId, fqn: &str) -> Option<Reso
 /// or a class the decompiler has to produce.
 fn library_class_resolution(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     fqn: &str,
 ) -> Option<Resolution> {
-    match hir::library_source_decl(db, library, fqn)? {
-        hir::LibrarySourceDecl::Loaded { file, item } => Some(Resolution::Decl {
+    match jvm_index::library_source_decl(db, library, fqn)? {
+        jvm_index::LibrarySourceDecl::Loaded { file, item } => Some(Resolution::Decl {
             file,
             range: declaration_name_range(db, file, item)?,
             name: simple_name(fqn),
         }),
-        hir::LibrarySourceDecl::Pending { entry, path } => {
-            let archive = hir::library_sources(db, library).map(|sources| sources.archive)?;
+        jvm_index::LibrarySourceDecl::Pending { entry, path } => {
+            let archive = jvm_index::library_sources(db, library).map(|sources| sources.archive)?;
             Some(Resolution::Pending(LibraryFileRef::Source {
                 library,
                 archive,
@@ -760,7 +763,7 @@ fn library_class_resolution(
                 path,
             }))
         }
-        hir::LibrarySourceDecl::Decompiled { class, path } => {
+        jvm_index::LibrarySourceDecl::Decompiled { class, path } => {
             Some(Resolution::Pending(LibraryFileRef::Decompile {
                 library,
                 class,
@@ -795,7 +798,7 @@ fn self_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<Navi
 fn declaration_item_at(
     ctx: &Ctx,
     offset: TextSize,
-) -> Option<hir::hir_def::kotlin::item_tree::ItemId> {
+) -> Option<jvm_index::hir_def::kotlin::item_tree::ItemId> {
     all_items(ctx)
         .into_iter()
         .filter(|(_, item)| ctx.name_range(*item).is_some_and(|r| r.contains(offset)))
@@ -804,7 +807,7 @@ fn declaration_item_at(
 }
 
 /// Every item of the file with its declaration range, in tree order.
-fn all_items(ctx: &Ctx) -> Vec<(TextRange, hir::hir_def::kotlin::item_tree::ItemId)> {
+fn all_items(ctx: &Ctx) -> Vec<(TextRange, jvm_index::hir_def::kotlin::item_tree::ItemId)> {
     let mut out = Vec::new();
     for &top in &ctx.tree.top {
         walk(ctx, top, &mut out);
@@ -814,8 +817,8 @@ fn all_items(ctx: &Ctx) -> Vec<(TextRange, hir::hir_def::kotlin::item_tree::Item
 
 fn walk(
     ctx: &Ctx,
-    item: hir::hir_def::kotlin::item_tree::ItemId,
-    out: &mut Vec<(TextRange, hir::hir_def::kotlin::item_tree::ItemId)>,
+    item: jvm_index::hir_def::kotlin::item_tree::ItemId,
+    out: &mut Vec<(TextRange, jvm_index::hir_def::kotlin::item_tree::ItemId)>,
 ) {
     let data = ctx.tree.data(item);
     if let Some(range) = ctx.item_range(item) {
@@ -854,13 +857,13 @@ struct Ctx {
 
 impl Ctx {
     fn new(db: &RootDatabase, file: FileId) -> Option<Ctx> {
-        let file_tree = hir::file_item_tree(db, file);
-        let tree = hir::hir_def::kotlin::plugin::tree(db, file)?;
+        let file_tree = jvm_index::file_item_tree(db, file);
+        let tree = jvm_index::hir_def::kotlin::plugin::tree(db, file)?;
         let language = file_tree.language();
         let parse = parse(db, file, language);
         let source = parse.syntax_node(language);
         let root = ranges::kotlin_root(&source)?.clone();
-        let map = hir::hir_def::db::ast_id_map(db, file, language).clone();
+        let map = jvm_index::hir_def::db::ast_id_map(db, file, language).clone();
         Some(Ctx {
             file,
             tree,
@@ -871,12 +874,12 @@ impl Ctx {
     }
 
     /// The declared range of `item`.
-    fn item_range(&self, item: hir::hir_def::kotlin::item_tree::ItemId) -> Option<TextRange> {
+    fn item_range(&self, item: jvm_index::hir_def::kotlin::item_tree::ItemId) -> Option<TextRange> {
         ranges::item_range(&self.map, &self.source, &self.tree, item)
     }
 
     /// The declared-*name* range of `item`.
-    fn name_range(&self, item: hir::hir_def::kotlin::item_tree::ItemId) -> Option<TextRange> {
+    fn name_range(&self, item: jvm_index::hir_def::kotlin::item_tree::ItemId) -> Option<TextRange> {
         ranges::item_name_range(&self.map, &self.source, &self.tree, item)
     }
 }
@@ -886,7 +889,7 @@ impl Ctx {
 fn declaration_name_range(
     db: &RootDatabase,
     file: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
 ) -> Option<TextRange> {
     crate::lang::for_file(db, file)?.declaration_name_range(db, file, item)
 }
@@ -895,7 +898,7 @@ fn declaration_name_range(
 pub(crate) fn kotlin_declaration_name_range(
     db: &RootDatabase,
     file: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
 ) -> Option<TextRange> {
     Ctx::new(db, file)?.name_range(item)
 }
@@ -1129,8 +1132,8 @@ impl Scope {
 }
 
 /// The source sets of the project graph, in registration order.
-fn registered_source_sets(db: &RootDatabase) -> Vec<hir::SourceSetId> {
-    hir::project_graph(db)
+fn registered_source_sets(db: &RootDatabase) -> Vec<jvm_index::SourceSetId> {
+    jvm_index::project_graph(db)
         .map(|graph| graph.source_sets(db).keys().cloned().collect())
         .unwrap_or_default()
 }

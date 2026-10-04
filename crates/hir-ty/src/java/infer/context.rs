@@ -81,7 +81,7 @@ pub(super) fn enclosing_self_ty(
     file: FileId,
     tree: &hir_def::java::item_tree::ItemTree,
     item: ItemId,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
 ) -> Option<Ty> {
     // The enclosing declarations, innermost first ([`ItemTree::parent_of`]).
@@ -134,7 +134,12 @@ pub(super) fn enclosing_self_ty(
                         hir_def::java::item_tree::ItemData::Annotation(d) => &d.name,
                         _ => continue,
                     };
-                    Ty::local_reference(db, hir::SourceClass { file, item: id }, name.clone(), args)
+                    Ty::local_reference(
+                        db,
+                        jvm_index::SourceClass { file, item: id },
+                        name.clone(),
+                        args,
+                    )
                 }
             });
         }

@@ -48,8 +48,8 @@ classfiles) living in a shared layer that every JVM language plugs into.
      supertypes, your call sites' access context, and the file dependency
      index.
 
-5. **`crates/hir/src/<lang>/`** — `impl LanguageFileIndex`
-   ([`crates/hir/src/lang.rs`](../crates/hir/src/lang.rs)): the symbols the
+5. **`crates/jvm-index/src/<lang>/`** — `impl LanguageFileIndex`
+   ([`crates/jvm-index/src/lang.rs`](../crates/jvm-index/src/lang.rs)): the symbols the
    file contributes to the workspace index, its doc comments, its package and
    the facade class a compiler synthesizes for its top-level declarations.
 

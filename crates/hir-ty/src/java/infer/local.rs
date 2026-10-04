@@ -148,11 +148,11 @@ impl InferCtx<'_> {
         let TyKind::Reference { name, .. } = ty.kind(self.db) else {
             return None;
         };
-        let resolved = hir::fqn_resolve(self.db, &self.scope, name.as_str())?;
+        let resolved = jvm_index::fqn_resolve(self.db, &self.scope, name.as_str())?;
         match resolved {
             // A Kotlin file's facade declares no record.
-            hir::Resolved::Facade { .. } => None,
-            hir::Resolved::Source(source) => {
+            jvm_index::Resolved::Facade { .. } => None,
+            jvm_index::Resolved::Source(source) => {
                 // A class of another language has no Java declaration
                 // ([`crate::java::resolve::java_item`]) — and Kotlin has no
                 // Java record.
@@ -162,10 +162,10 @@ impl InferCtx<'_> {
                     _ => None,
                 }
             }
-            hir::Resolved::Library(resolved_class) => {
-                let record = hir::class_record(self.db, &resolved_class)?;
+            jvm_index::Resolved::Library(resolved_class) => {
+                let record = jvm_index::class_record(self.db, &resolved_class)?;
                 match record.as_ref() {
-                    hir::ClassOrModuleRecord::Class(class) if class.is_record => {
+                    jvm_index::ClassOrModuleRecord::Class(class) if class.is_record => {
                         Some(class.record_components.len())
                     }
                     _ => None,

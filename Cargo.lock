@@ -258,13 +258,13 @@ dependencies = [
  "crossbeam-channel",
  "directories",
  "gen-lsp-types",
- "hir",
  "ide",
  "ide-db",
  "ignore",
  "insta",
  "itertools 0.14.0",
  "jimage-rs",
+ "jvm_index",
  "lsp-server",
  "lsp-test",
  "memchr",
@@ -982,40 +982,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
-name = "hir"
-version = "0.0.0"
-dependencies = [
- "anyhow",
- "base-db",
- "camino",
- "classfile",
- "dashmap",
- "heed",
- "hir-def",
- "hir-expand",
- "insta",
- "jimage-rs",
- "lasso",
- "parking_lot",
- "postcard",
- "project-model",
- "ra_ap_vfs",
- "rayon",
- "rowan",
- "rust-asm",
- "rustc-hash 2.1.2",
- "salsa",
- "serde",
- "smol_str",
- "syntax",
- "tempfile",
- "tracing",
- "triomphe",
- "unicode-general-category",
- "zip",
-]
-
-[[package]]
 name = "hir-def"
 version = "0.0.0"
 dependencies = [
@@ -1061,11 +1027,11 @@ dependencies = [
  "base-db",
  "camino",
  "classfile",
- "hir",
  "hir-def",
  "hir-expand",
  "ide-diagnostics",
  "insta",
+ "jvm_index",
  "line-index",
  "ra_ap_vfs",
  "rowan",
@@ -1209,12 +1175,12 @@ dependencies = [
  "bitflags",
  "classfile",
  "dashmap",
- "hir",
  "hir-expand",
  "hir-ty",
  "ide-db",
  "ide-diagnostics",
  "insta",
+ "jvm_index",
  "lsp-test",
  "parking_lot",
  "project-model",
@@ -1234,10 +1200,10 @@ version = "0.0.0"
 dependencies = [
  "base-db",
  "camino",
- "hir",
  "hir-def",
  "hir-expand",
  "hir-ty",
+ "jvm_index",
  "line-index",
  "ra_ap_vfs",
  "rowan",
@@ -1251,10 +1217,10 @@ dependencies = [
 name = "ide-diagnostics"
 version = "0.0.0"
 dependencies = [
- "hir",
  "hir-expand",
  "hir-ty",
  "ide-db",
+ "jvm_index",
  "ra_ap_vfs",
  "rowan",
  "rustc-hash 2.1.2",
@@ -1479,6 +1445,40 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jvm_index"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "base-db",
+ "camino",
+ "classfile",
+ "dashmap",
+ "heed",
+ "hir-def",
+ "hir-expand",
+ "insta",
+ "jimage-rs",
+ "lasso",
+ "parking_lot",
+ "postcard",
+ "project-model",
+ "ra_ap_vfs",
+ "rayon",
+ "rowan",
+ "rust-asm",
+ "rustc-hash 2.1.2",
+ "salsa",
+ "serde",
+ "smol_str",
+ "syntax",
+ "tempfile",
+ "tracing",
+ "triomphe",
+ "unicode-general-category",
+ "zip",
 ]
 
 [[package]]

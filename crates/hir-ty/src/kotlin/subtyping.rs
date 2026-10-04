@@ -30,9 +30,9 @@
 //! library classifier is compared invariantly — a recorded deviation, and the
 //! reason a covariance test declares its own class.
 
-use hir::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData, KotlinItemTree};
-use hir::hir_def::kotlin::modifiers::KotlinVariance;
 use hir_expand::name::Name;
+use jvm_index::hir_def::kotlin::item_tree::{KotlinClassKind, KotlinItemData, KotlinItemTree};
+use jvm_index::hir_def::kotlin::modifiers::KotlinVariance;
 use vfs::FileId;
 
 use crate::jvm::db::TyDatabase;
@@ -40,14 +40,14 @@ use crate::kotlin::ty::ty_from_java;
 use crate::ty::{Ty, TyKind};
 
 /// The direct supertypes of `ty` in `scope`.
-pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) -> Vec<Ty> {
+pub fn supertypes(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, ty: &Ty) -> Vec<Ty> {
     // A local classifier declares its supertypes in its own item, and the
     // receiver *is* that declaration ([KLS
     // `declarations.html#local-class-declaration`](https://kotlinlang.org/spec/declarations.html#local-class-declaration)):
     // `object : Runnable { … }` is a `Runnable`, which is what makes it usable
     // in a SAM position.
     if let Some(class) = super::method::local_class_of(db, ty) {
-        if hir_def::kotlin::plugin::model(&hir::file_item_tree(db, class.file)).is_some() {
+        if hir_def::kotlin::plugin::model(&jvm_index::file_item_tree(db, class.file)).is_some() {
             let binding = class_binding(db, &class, ty);
             return super::db::supertypes(db, class.file, class.item)
                 .iter()
@@ -59,7 +59,7 @@ pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) ->
     let Some(fqn) = reference_fqn(db, ty) else {
         return Vec::new();
     };
-    let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, scope, fqn.as_str()) else {
         // A built-in Kotlin classifier has no classfile: its supertypes are the
         // mapped JVM type's ([`super::builtins`]), converted back to the Kotlin
         // names the mapping table pairs them with — `kotlin.collections.List` is
@@ -90,11 +90,11 @@ pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) ->
     match &resolved {
         // A Kotlin file's facade is a Java class with no declared supertype but
         // `Object` — `kotlin.Any` from a Kotlin receiver.
-        hir::Resolved::Facade { .. } => {
+        jvm_index::Resolved::Facade { .. } => {
             return vec![Ty::reference(db, "kotlin.Any", Vec::new())];
         }
-        hir::Resolved::Source(class) => {
-            let tree = hir::file_item_tree(db, class.file);
+        jvm_index::Resolved::Source(class) => {
+            let tree = jvm_index::file_item_tree(db, class.file);
             let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
                 // Another language declares the class: its own type layer owns
                 // the supertypes, and [`ty_from_java`] is what makes its types
@@ -116,7 +116,7 @@ pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) ->
         // A library classifier's supertypes come from its classfile record, as
         // interned binary names, and each is converted to the Kotlin type it
         // denotes.
-        hir::Resolved::Library(_) => supertypes_of_another_language(db, scope, ty),
+        jvm_index::Resolved::Library(_) => supertypes_of_another_language(db, scope, ty),
     }
 }
 
@@ -125,7 +125,7 @@ pub fn supertypes(db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: &Ty) ->
 /// own types, which Kotlin reads through its JVM codec ([`ty_from_java`]).
 fn supertypes_of_another_language(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     ty: &Ty,
 ) -> Vec<Ty> {
     let language = match super::method::local_class_of(db, ty) {
@@ -140,13 +140,13 @@ fn supertypes_of_another_language(
             let Some(fqn) = reference_fqn(db, ty) else {
                 return Vec::new();
             };
-            let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+            let Some(resolved) = jvm_index::fqn_resolve(db, scope, fqn.as_str()) else {
                 return Vec::new();
             };
             match &resolved {
                 // A classfile declares no language: the entry that reads
                 // classfiles answers for it.
-                hir::Resolved::Library(_) => crate::lang::classfile(),
+                jvm_index::Resolved::Library(_) => crate::lang::classfile(),
                 class => match crate::lang::for_class(db, class) {
                     Some(language) => language,
                     None => return Vec::new(),
@@ -171,14 +171,14 @@ fn supertypes_of_another_language(
 /// an unbound variable alone.
 fn class_binding(
     db: &dyn TyDatabase,
-    class: &hir::SourceClass,
+    class: &jvm_index::SourceClass,
     ty: &Ty,
 ) -> rustc_hash::FxHashMap<crate::ty::TypeVarScope, Ty> {
     class_binding_of(db, class.file, class.item, ty)
 }
 
 /// The same binding for a caller that has the classifier's file and item rather
-/// than a [`hir::SourceClass`] — the member walk and the JVM view, which
+/// than a [`jvm_index::SourceClass`] — the member walk and the JVM view, which
 /// substitute the receiver's arguments into the members they are about to
 /// answer with.
 pub(crate) fn class_binding_of(
@@ -201,7 +201,7 @@ pub(crate) fn class_binding_args(
     item: hir_expand::ids::ItemId,
     args: &[Ty],
 ) -> rustc_hash::FxHashMap<crate::ty::TypeVarScope, Ty> {
-    let tree = hir::file_item_tree(db, file);
+    let tree = jvm_index::file_item_tree(db, file);
     let Some(tree) = hir_def::kotlin::plugin::model(&tree) else {
         return rustc_hash::FxHashMap::default();
     };
@@ -243,7 +243,7 @@ pub(crate) fn class_binding_args(
 /// `type-system.html#nullable-types`](https://kotlinlang.org/spec/type-system.html#nullable-types)) —
 /// so the join is taken over the nullability-stripped operands and the result
 /// made nullable when either side was.
-pub fn lub(db: &dyn TyDatabase, scope: &hir::ResolutionScope, a: &Ty, b: &Ty) -> Ty {
+pub fn lub(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, a: &Ty, b: &Ty) -> Ty {
     // `null`'s type is `Nothing?`, the bottom of the nullable half of the lattice
     // ([KLS
     // `type-system.html#nullable-types`](https://kotlinlang.org/spec/type-system.html#nullable-types)):
@@ -269,7 +269,7 @@ pub fn lub(db: &dyn TyDatabase, scope: &hir::ResolutionScope, a: &Ty, b: &Ty) ->
 }
 
 /// [`lub`] over two non-null types: the join's nullability is its caller's.
-fn lub_non_nullable(db: &dyn TyDatabase, scope: &hir::ResolutionScope, a: &Ty, b: &Ty) -> Ty {
+fn lub_non_nullable(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope, a: &Ty, b: &Ty) -> Ty {
     if a == b {
         return *a;
     }
@@ -344,7 +344,12 @@ fn lub_non_nullable(db: &dyn TyDatabase, scope: &hir::ResolutionScope, a: &Ty, b
 
 /// Whether `sub` is a subtype of `sup` ([KLS
 /// `type-system.html#subtyping`](https://kotlinlang.org/spec/type-system.html#subtyping)).
-pub fn is_subtype(db: &dyn TyDatabase, scope: &hir::ResolutionScope, sub: &Ty, sup: &Ty) -> bool {
+pub fn is_subtype(
+    db: &dyn TyDatabase,
+    scope: &jvm_index::ResolutionScope,
+    sub: &Ty,
+    sup: &Ty,
+) -> bool {
     if sub == sup {
         return true;
     }
@@ -558,7 +563,7 @@ fn mentions_unbound_var(db: &dyn TyDatabase, ty: Ty) -> bool {
 
 fn arguments_are_subtypes(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     variances: Option<&[Option<KotlinVariance>]>,
     sub_args: &[Ty],
     sup_args: &[Ty],
@@ -638,7 +643,7 @@ fn arguments_are_subtypes(
 /// [`is_subtype`] for a test-visible caller, which names it `kotlin_subtype`.
 pub fn kotlin_subtype(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     sub: &Ty,
     sup: &Ty,
 ) -> bool {
@@ -651,7 +656,7 @@ pub fn kotlin_subtype(
 /// Kotlin's assignment compatibility is the subtype relation).
 pub fn is_assignable(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     src: &Ty,
     dst: &Ty,
 ) -> bool {
@@ -674,7 +679,7 @@ fn reference_fqn(db: &dyn TyDatabase, ty: &Ty) -> Option<Name> {
 /// not decode), and `None` for any other library class.
 pub fn declared_variances(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> Option<Vec<Option<KotlinVariance>>> {
     // The mapped classifiers first: `kotlin.collections.List` has no classfile
@@ -682,11 +687,11 @@ pub fn declared_variances(
     if let Some(variances) = super::ty::mapped_variances(&Name::new(fqn)) {
         return Some(variances.to_vec());
     }
-    let resolved = hir::fqn_resolve(db, scope, fqn)?;
-    let hir::Resolved::Source(class) = &resolved else {
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn)?;
+    let jvm_index::Resolved::Source(class) = &resolved else {
         return None;
     };
-    let tree = hir::file_item_tree(db, class.file);
+    let tree = jvm_index::file_item_tree(db, class.file);
     let tree = hir_def::kotlin::plugin::model(&tree)?;
     let KotlinItemData::Class(data) = tree.data(class.item) else {
         return None;
@@ -702,14 +707,14 @@ pub fn declared_variances(
 /// Whether the classifier `fqn` names is an interface or an annotation class.
 pub fn is_interface_like(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> Option<bool> {
-    let resolved = hir::fqn_resolve(db, scope, fqn)?;
-    let hir::Resolved::Source(class) = &resolved else {
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn)?;
+    let jvm_index::Resolved::Source(class) = &resolved else {
         return None;
     };
-    let tree = hir::file_item_tree(db, class.file);
+    let tree = jvm_index::file_item_tree(db, class.file);
     let tree = hir_def::kotlin::plugin::model(&tree)?;
     match tree.data(class.item) {
         KotlinItemData::Class(data) => Some(matches!(
@@ -723,11 +728,11 @@ pub fn is_interface_like(
 /// The Kotlin item tree of a source class named by `fqn`, with its file.
 pub fn source_class<'a>(
     db: &'a dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     fqn: &str,
 ) -> Option<(FileId, triomphe::Arc<KotlinItemTree>)> {
-    let resolved = hir::fqn_resolve(db, scope, fqn)?;
-    let hir::Resolved::Source(class) = &resolved else {
+    let resolved = jvm_index::fqn_resolve(db, scope, fqn)?;
+    let jvm_index::Resolved::Source(class) = &resolved else {
         return None;
     };
     let tree = hir_def::kotlin::plugin::tree(db, class.file)?;

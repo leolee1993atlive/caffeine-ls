@@ -188,7 +188,7 @@ fn provenance_method_declared_in_superclass_file() {
         ),
     ];
     let source_set = register_source_set(&mut db, &fixture, &files);
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let context = source_context(&db, source_set);
 
     // The method is *inherited*: declared on `Base` (file 1), resolved on `Sub`.
@@ -225,7 +225,7 @@ fn provenance_field_declared_in_superclass_file() {
         ),
     ];
     let source_set = register_source_set(&mut db, &fixture, &files);
-    let scope = hir::ResolutionScope::SourceSet(source_set.clone());
+    let scope = jvm_index::ResolutionScope::SourceSet(source_set.clone());
     let context = source_context(&db, source_set);
 
     let receiver = hir_ty::Ty::reference(&db, "p.Sub", vec![]);

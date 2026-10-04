@@ -45,12 +45,14 @@ use hir_def::java::ranges;
 /// workspace loads (`project_graph` is `None`) or when a file outside any
 /// source set has no JDK registered, names degrade silently ([`crate::java::resolve`])
 /// and no unknown-symbol report is emitted — it would be pure noise.
-fn can_resolve(db: &dyn TyDatabase, scope: &hir::ResolutionScope) -> bool {
-    hir::project_graph(db).is_some()
+fn can_resolve(db: &dyn TyDatabase, scope: &jvm_index::ResolutionScope) -> bool {
+    jvm_index::project_graph(db).is_some()
         && match scope {
-            hir::ResolutionScope::SourceSet(_) => true,
-            hir::ResolutionScope::Classpath(libraries) => !libraries.is_empty(),
-            hir::ResolutionScope::JdkBuiltins => !hir::jdk_builtin_libraries(db).is_empty(),
+            jvm_index::ResolutionScope::SourceSet(_) => true,
+            jvm_index::ResolutionScope::Classpath(libraries) => !libraries.is_empty(),
+            jvm_index::ResolutionScope::JdkBuiltins => {
+                !jvm_index::jdk_builtin_libraries(db).is_empty()
+            }
         }
 }
 
@@ -92,7 +94,7 @@ pub(crate) enum TypeRefDiag {
 /// ([`can_resolve`]).
 pub(crate) fn check_spanned(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     spanned: &SpannedTypeRef,
     into: &mut Vec<TypeRefDiag>,
@@ -114,7 +116,7 @@ pub(crate) fn check_spanned(
 /// [`check_spanned`](crate::java::name_check::check_spanned).
 pub(crate) fn deprecation_hits(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     spanned: &SpannedTypeRef,
 ) -> Vec<DeprecatedReference> {
@@ -142,7 +144,7 @@ pub(crate) fn deprecation_hits(
 /// The checked resolution outcome of one reference name, pushed into `into`.
 fn check_reference(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
     range: Option<TextRange>,
@@ -263,7 +265,7 @@ pub(crate) fn duplicate_package_diagnostics(
 /// the shape a conventional classpath looks the class up under. `module-info.java`
 /// (no package declaration, [JLS §7.7](https://docs.oracle.com/javase/specs/jls/se26/html/jls-7.html#jls-7.7))
 /// and files with the default package are exempt; files without a resolvable
-/// path are skipped (see [`hir::file_path_segments`]).
+/// path are skipped (see [`jvm_index::file_path_segments`]).
 ///
 /// The check is a *suffix* match rather than an exact one because the source
 /// root base directory is not recoverable from the file-set (a single top
@@ -279,7 +281,7 @@ pub(crate) fn package_path_diagnostics(
     let Some(package) = tree.package.clone() else {
         return Vec::new();
     };
-    let Some(dir) = hir::file_path_segments(db, file) else {
+    let Some(dir) = jvm_index::file_path_segments(db, file) else {
         return Vec::new();
     };
     let expected: Vec<&str> = package.as_str().split('.').collect();
@@ -298,8 +300,8 @@ pub(crate) fn package_path_diagnostics(
             expected: package,
             // IntelliJ-style root-relative package directory (`org.example`),
             // with the full slash path as a fallback
-            // ([`hir::file_package_dir`]).
-            dir: hir::file_package_dir(db, file).unwrap_or_else(|| dir.join("/")),
+            // ([`jvm_index::file_package_dir`]).
+            dir: jvm_index::file_package_dir(db, file).unwrap_or_else(|| dir.join("/")),
             name_range,
         }];
     }
@@ -382,7 +384,7 @@ pub fn item_type_references(
             ranges::annotation_name_range(map, &source, annotation),
         ));
     }
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let body_refs = match item_data(&tree, item) {
         Some(ItemData::Method(method)) => match method.body() {
             Some(body) => body_type_refs(&bodies, body),
@@ -469,7 +471,7 @@ pub(crate) fn declaration_type_diagnostics(
     fn walk(
         db: &dyn TyDatabase,
         file_id: FileId,
-        scope: &hir::ResolutionScope,
+        scope: &jvm_index::ResolutionScope,
         tree: &ItemTree,
         map: &AstIdMap,
         source: &SourceFile,
@@ -583,7 +585,7 @@ pub(crate) fn declaration_type_diagnostics(
     // unit §9.6.4.6's same-outermost-class exemption compares; each top-level
     // declaration of the unit is its own outermost class.
     for &top in &tree.top {
-        let outermost = hir::source_class_fqn(db, file, top).unwrap_or_else(|| Name::new(""));
+        let outermost = jvm_index::source_class_fqn(db, file, top).unwrap_or_else(|| Name::new(""));
         walk(
             db, file, &scope, tree, map, &source, &outermost, top, &mut out,
         );
@@ -597,7 +599,7 @@ pub(crate) fn declaration_type_diagnostics(
 #[allow(clippy::too_many_arguments)]
 fn check_reference_deprecation(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     resolver: &Resolver,
     name: &Name,
     range: Option<TextRange>,
@@ -643,7 +645,7 @@ fn tyref_range(occurrences: &[(Name, Option<TextRange>)]) -> Option<TextRange> {
 ///   existing class or interface ([§7.5.4]).
 pub(crate) fn import_diagnostics(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     tree: &ItemTree,
     map: &AstIdMap,
     source: &SourceFile,
@@ -661,7 +663,7 @@ pub(crate) fn import_diagnostics(
     // an unresolvable import is a compile-time error.
     let mut out = Vec::new();
     for import in &single_imports {
-        if hir::fqn_resolve(db, scope, import.name.as_str()).is_none() {
+        if jvm_index::fqn_resolve(db, scope, import.name.as_str()).is_none() {
             out.push(DeclDiagnostic::UnresolvedImport {
                 name: import.name.clone(),
                 range: import_range(import),
@@ -758,7 +760,7 @@ pub(crate) fn import_diagnostics(
         .iter()
         .filter(|import| !import.is_static && import.is_asterisk)
     {
-        if !hir::package_exists(db, scope, import.name.as_str()) {
+        if !jvm_index::package_exists(db, scope, import.name.as_str()) {
             out.push(DeclDiagnostic::UnresolvedImportPackage {
                 name: import.name.clone(),
                 range: import_range(import),
@@ -785,12 +787,12 @@ pub(crate) fn import_diagnostics(
             // same-unit reference (never reported here).
             continue;
         };
-        if !hir::package_exists(db, scope, package) {
+        if !jvm_index::package_exists(db, scope, package) {
             out.push(DeclDiagnostic::UnresolvedImportPackage {
                 name: Name::new(package),
                 range: import_range(import),
             });
-        } else if hir::fqn_resolve(db, scope, text).is_none() {
+        } else if jvm_index::fqn_resolve(db, scope, text).is_none() {
             out.push(DeclDiagnostic::UnresolvedStaticImport {
                 name: import.name.clone(),
                 range: import_range(import),
@@ -854,7 +856,7 @@ pub(crate) fn import_diagnostics(
 /// inherited ones, so the probes below search the whole member set.
 fn static_member_exists(
     db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
+    scope: &jvm_index::ResolutionScope,
     tree: &ItemTree,
     owner: &str,
     member: &str,

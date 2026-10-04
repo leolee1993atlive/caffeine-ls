@@ -34,7 +34,7 @@ pub trait JvmMemberSource: Sync {
     fn methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<MethodData>;
@@ -44,7 +44,7 @@ pub trait JvmMemberSource: Sync {
     fn fields(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
         name: &str,
     ) -> Vec<FieldData>;
@@ -55,7 +55,7 @@ pub trait JvmMemberSource: Sync {
     fn abstract_methods(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
         args: &[Ty],
     ) -> Vec<MethodData> {
         let _ = (db, class, args);
@@ -73,7 +73,11 @@ pub trait JvmMemberSource: Sync {
     /// interface in the classfile, which no other layer can tell from its
     /// source. `None` for a declaration this view cannot read — callers stay
     /// permissive there.
-    fn kind(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Option<(JvmClassKind, bool)>;
+    fn kind(
+        &self,
+        db: &dyn TyDatabase,
+        class: &jvm_index::Resolved,
+    ) -> Option<(JvmClassKind, bool)>;
 
     /// Whether `method` is a source constructor of this language. A classfile
     /// constructor is `<init>` and is not filtered, so the default is `false`.
@@ -89,7 +93,11 @@ pub trait JvmMemberSource: Sync {
     /// The canonical names of the classes enclosing a local declaration,
     /// outermost last. The default is empty: only a language that records the
     /// chain in an item tree answers.
-    fn enclosing_named_classes(&self, db: &dyn TyDatabase, class: &hir::SourceClass) -> Vec<Name> {
+    fn enclosing_named_classes(
+        &self,
+        db: &dyn TyDatabase,
+        class: &jvm_index::SourceClass,
+    ) -> Vec<Name> {
         let _ = (db, class);
         Vec::new()
     }
@@ -118,7 +126,12 @@ pub trait LanguageTypes: Sync {
     fn ty_to_jvm(&self, db: &dyn TyDatabase, ty: Ty) -> Ty;
 
     /// The declared supertypes of `ty` in `scope`, in this language's types.
-    fn supertypes(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: Ty) -> Vec<Ty>;
+    fn supertypes(
+        &self,
+        db: &dyn TyDatabase,
+        scope: &jvm_index::ResolutionScope,
+        ty: Ty,
+    ) -> Vec<Ty>;
 
     /// The access-control context of the call sites of `file` — derived from
     /// this language's own declarations.
@@ -160,14 +173,14 @@ pub trait LanguageTypes: Sync {
     /// no raw types — a use with no type arguments is then not raw
     /// ([JLS §4.8] is a Java question). A library class is answered by
     /// [`classfile`], not by this default.
-    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> usize {
+    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &jvm_index::Resolved) -> usize {
         let _ = (db, class);
         0
     }
 
     /// The type variables a source class declares, in declaration order.
     /// Empty when this language does not declare them on `class`.
-    fn source_type_vars(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Vec<Ty> {
+    fn source_type_vars(&self, db: &dyn TyDatabase, class: &jvm_index::Resolved) -> Vec<Ty> {
         let _ = (db, class);
         Vec::new()
     }
@@ -178,7 +191,7 @@ pub trait LanguageTypes: Sync {
     fn type_param_bounds(
         &self,
         db: &dyn TyDatabase,
-        class: &hir::Resolved,
+        class: &jvm_index::Resolved,
     ) -> Vec<(crate::ty::TypeVarScope, Vec<Ty>)> {
         let _ = (db, class);
         Vec::new()
@@ -204,12 +217,15 @@ pub fn for_file(db: &dyn TyDatabase, file: FileId) -> Option<&'static dyn Langua
 
 /// The type layer of the language declaring `class` — the reference for a
 /// cross-language lookup.
-pub fn for_class(db: &dyn TyDatabase, class: &hir::Resolved) -> Option<&'static dyn LanguageTypes> {
+pub fn for_class(
+    db: &dyn TyDatabase,
+    class: &jvm_index::Resolved,
+) -> Option<&'static dyn LanguageTypes> {
     match class {
-        hir::Resolved::Source(source) => for_file(db, source.file),
-        hir::Resolved::Facade { file, .. } => for_file(db, *file),
+        jvm_index::Resolved::Source(source) => for_file(db, source.file),
+        jvm_index::Resolved::Facade { file, .. } => for_file(db, *file),
         // A classfile declares no source language ([`classfile`]).
-        hir::Resolved::Library(_) => None,
+        jvm_index::Resolved::Library(_) => None,
     }
 }
 
@@ -217,7 +233,7 @@ pub fn for_class(db: &dyn TyDatabase, class: &hir::Resolved) -> Option<&'static 
 /// members the shared member set enumerates from its record itself).
 pub fn member_source(
     db: &dyn TyDatabase,
-    class: &hir::Resolved,
+    class: &jvm_index::Resolved,
 ) -> Option<&'static dyn JvmMemberSource> {
     for_class(db, class).map(|language| language.member_source())
 }

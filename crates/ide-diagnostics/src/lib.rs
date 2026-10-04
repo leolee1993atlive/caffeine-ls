@@ -21,11 +21,11 @@
 //! the LSP layer pulls per file, and the conformance renderers in `hir-ty`'s
 //! integration tests print from the same surface.
 
-use hir::hir_def::jvm::ids::ItemId;
 use ide_db::{
     FileRange, RootDatabase, Severity,
     base_db::{self, FileText, LanguageKind, SourceDatabase, salsa},
 };
+use jvm_index::hir_def::jvm::ids::ItemId;
 use rowan::TextRange;
 use rustc_hash::FxHashMap;
 use syntax::DiagnosticCode;
@@ -161,7 +161,7 @@ pub(crate) fn item_diagnostics_impl(
     file_id: FileId,
     item_id: ItemId,
 ) -> Vec<Diagnostic> {
-    let bodies = hir::file_body_tree(db, file_id);
+    let bodies = jvm_index::file_body_tree(db, file_id);
     let Some(body_types) = hir_ty::body_types(db, file_id, item_id) else {
         return Vec::new();
     };
@@ -271,7 +271,7 @@ pub(crate) fn file_report_query(db: &dyn hir_ty::TyDatabase, file: FileText) -> 
     // nor its type diagnostics are the user's to fix. The tracked
     // file→source-root read inside `library_source_for_file` also keeps this
     // answer re-deriving once the workspace graph exists.
-    if hir::library_source_for_file(db, file_id).is_some() {
+    if jvm_index::library_source_for_file(db, file_id).is_some() {
         return Arc::from(Vec::new());
     }
     let mut sink = DiagnosticSink::new();

@@ -180,7 +180,7 @@ pub(crate) fn body_types_impl(
 ) -> Option<BodyTypes> {
     let _scope = BodyScope::new(file, item);
     let tree = hir_def::java::plugin::tree(db, file);
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let item_end = range_ctx(db, file, tree.language)
         .and_then(|(map, source)| hir_def::java::ranges::item_range(map, &source, &tree, item))
         .map(|range| range.end());
@@ -738,7 +738,7 @@ impl BreakFrame {
 struct InferCtx<'a> {
     db: &'a dyn TyDatabase,
     file: FileId,
-    scope: hir::ResolutionScope,
+    scope: jvm_index::ResolutionScope,
     tree: Arc<BodyTree>,
     resolver: Resolver,
     access: InvocationContext,

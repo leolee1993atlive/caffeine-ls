@@ -91,14 +91,14 @@ use smol_str::SmolStr;
 use triomphe::Arc;
 use vfs::FileId;
 
-use hir::JvmDatabase;
-use hir::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 use hir_expand::{
     arena::ArenaId,
     body::{BodyTree, ExprData, ExprId, LocalId, StmtData, StmtId, SwitchLabel},
     name::Name,
 };
 use hir_ty::Ty;
+use jvm_index::JvmDatabase;
+use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 
 use ide_db::base_db::{self, LanguageKind};
 use syntax::java::{SyntaxKind as J, translate_unicode_escapes};
@@ -113,8 +113,8 @@ fn item_range(db: &RootDatabase, file: FileId, tree: &ItemTree, item: ItemId) ->
         return None;
     }
     let source = base_db::parse(db, file, language).syntax_node(language);
-    let map = hir::hir_def::db::ast_id_map(db, file, language);
-    hir::hir_def::java::ranges::item_range(map, &source, tree, item)
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, language);
+    jvm_index::hir_def::java::ranges::item_range(map, &source, tree, item)
 }
 
 /// The source range of a declaration item's own *name* token, resolved on
@@ -131,8 +131,8 @@ fn item_name_range(
         return None;
     }
     let source = base_db::parse(db, file, language).syntax_node(language);
-    let map = hir::hir_def::db::ast_id_map(db, file, language);
-    hir::hir_def::java::ranges::item_name_range(map, &source, tree, item)
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, language);
+    jvm_index::hir_def::java::ranges::item_name_range(map, &source, tree, item)
 }
 
 /// The resolutions of the reference at `offset`: the recorded inference
@@ -163,7 +163,7 @@ fn resolutions(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolut
         return recorded;
     }
 
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     // A reference the recorded table does not cover: a lambda parameter (the
     // body IR carries it as a name/range pair, not a local), a local of a body
     // the type layer could not infer, or the enum constant of a `case` label
@@ -313,7 +313,7 @@ pub(crate) fn references(
 /// an item name of that library file — still correct, since the library source
 /// is in the database.
 fn is_workspace_visible(db: &RootDatabase, target: &NavigationTarget) -> bool {
-    let tree = hir::hir_def::java::plugin::tree(db, target.file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, target.file);
     if all_items(db, target.file, &tree)
         .into_iter()
         .any(|(_, item)| {
@@ -380,7 +380,7 @@ fn file_references(
     names: &FxHashSet<String>,
     decls: &FxHashSet<(FileId, TextRange)>,
 ) -> Vec<ReferenceTarget> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     if tree.language == LanguageKind::Unknown {
         return Vec::new();
     }
@@ -426,12 +426,12 @@ fn file_references(
 /// also read as a reference — the `Main` of `Main m` — is still answered by
 /// the reference (the class `Main`), never by a self-target.
 fn self_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<NavigationTarget> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     if tree.language == LanguageKind::Unknown {
         return None;
     }
     let source = base_db::parse(db, file, tree.language).syntax_node(tree.language);
-    let map = hir::hir_def::db::ast_id_map(db, file, tree.language);
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, tree.language);
 
     // A declared item: its own name token carries the offset. The *innermost*
     // declaration wins (the name ranges of nested declarations are disjoint),
@@ -441,11 +441,11 @@ fn self_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<Navi
     if let Some(item) = all_items(db, file, &tree)
         .into_iter()
         .filter(|(_, item)| {
-            hir::hir_def::java::ranges::item_name_range(map, &source, &tree, *item)
+            jvm_index::hir_def::java::ranges::item_name_range(map, &source, &tree, *item)
                 .is_some_and(|range| range.contains(offset))
         })
         .min_by_key(|(_, item)| {
-            hir::hir_def::java::ranges::item_name_range(map, &source, &tree, *item)
+            jvm_index::hir_def::java::ranges::item_name_range(map, &source, &tree, *item)
                 .map_or(u32::MAX, |range| u32::from(range.len()))
         })
         .map(|(_, item)| item)
@@ -474,7 +474,7 @@ fn self_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<Navi
 
     // A variable carried without an item of its own: a local, parameter,
     // pattern binding or lambda parameter, at the identifier it was named by.
-    variable_target(&hir::file_body_tree(db, file), file, offset)
+    variable_target(&jvm_index::file_body_tree(db, file), file, offset)
 }
 
 /// The navigation target of the declaration an item's own name token writes —
@@ -499,7 +499,7 @@ fn type_param_target(
     offset: TextSize,
 ) -> Option<NavigationTarget> {
     for item in items_at(db, file, tree, offset) {
-        let declared: &[hir::hir_def::java::item_tree::TypeParam] = match tree.data(item) {
+        let declared: &[jvm_index::hir_def::java::item_tree::TypeParam] = match tree.data(item) {
             ItemData::Class(data) | ItemData::Interface(data) => &data.type_params,
             ItemData::Record(data) => &data.type_params,
             ItemData::Method(data) => &data.sig.type_params,
@@ -581,7 +581,7 @@ fn file_components(db: &RootDatabase, file: FileId, tree: &ItemTree) -> Vec<Comp
         return Vec::new();
     }
     let source = base_db::parse(db, file, tree.language).syntax_node(tree.language);
-    let map = hir::hir_def::db::ast_id_map(db, file, tree.language);
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, tree.language);
     let mut out = Vec::new();
     for (_, item) in all_items(db, file, tree) {
         let ItemData::Record(record) = tree.data(item) else {
@@ -589,7 +589,7 @@ fn file_components(db: &RootDatabase, file: FileId, tree: &ItemTree) -> Vec<Comp
         };
         for (index, component) in record.components.iter().enumerate() {
             if let Some(range) =
-                hir::hir_def::java::ranges::component_name_range(map, &source, component)
+                jvm_index::hir_def::java::ranges::component_name_range(map, &source, component)
             {
                 out.push(ComponentAt {
                     record: item,
@@ -736,7 +736,7 @@ fn type_qualifier_reference(
         }
     }
     segments.next()?;
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let item = items_at(db, file, &tree, offset).first().copied();
     let name = Name::new(translate_unicode_escapes(&prefix).as_ref());
     Some(type_resolution(db, file, item, &name, Some(offset)))
@@ -755,7 +755,7 @@ fn declaration_type_ref_targets(
     file: FileId,
     offset: TextSize,
 ) -> Vec<Resolution> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let enclosed = items_at(db, file, &tree, offset);
     let mut rest: Vec<(TextRange, ItemId)> = all_items(db, file, &tree)
         .into_iter()
@@ -802,14 +802,14 @@ fn declaration_type_ref_targets(
 /// import's `*` is no identifier and names no declaration, and a leading
 /// package segment names no type, so neither is answered.
 fn import_targets(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolution> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     if tree.language == LanguageKind::Unknown {
         return Vec::new();
     }
     let source = base_db::parse(db, file, tree.language).syntax_node(tree.language);
-    let map = hir::hir_def::db::ast_id_map(db, file, tree.language);
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, tree.language);
     for import in &tree.imports {
-        let segments = hir::hir_def::java::ranges::import_segments(map, &source, import);
+        let segments = jvm_index::hir_def::java::ranges::import_segments(map, &source, import);
         let Some(index) = segments
             .iter()
             .position(|(_, range)| range.contains(offset))
@@ -872,7 +872,7 @@ fn targets(db: &RootDatabase, resolutions: Vec<Resolution>) -> Vec<NavigationTar
             }
             Resolution::LibraryMember {
                 decl:
-                    hir::LibrarySourceDecl::Loaded {
+                    jvm_index::LibrarySourceDecl::Loaded {
                         file: decl_file,
                         item,
                     },
@@ -930,7 +930,7 @@ fn navigation(
             Resolution::Pending(file) => pending.push(file),
             Resolution::LibraryMember {
                 library,
-                decl: hir::LibrarySourceDecl::Decompiled { class, path },
+                decl: jvm_index::LibrarySourceDecl::Decompiled { class, path },
                 ..
             } => pending.push(LibraryFileRef::Decompile {
                 library,
@@ -949,8 +949,8 @@ fn navigation(
 /// expression has one for this reference either — the enclosing invocation or
 /// field access names a different declaration ([`innermost_expr_at`]).
 fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolution> {
-    let bodies = hir::file_body_tree(db, file);
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let items = body_items_at(db, file, &tree, offset);
     let Some(expr) = innermost_expr_at(&bodies, offset) else {
         return Vec::new();
@@ -1027,15 +1027,15 @@ fn reference_at(bodies: &BodyTree, expr: ExprId) -> Reference {
 /// required return type), so being named like the class does not make a
 /// declaration a constructor.
 fn is_constructor_decl(db: &RootDatabase, file: FileId, item: ItemId) -> bool {
-    if let Some(tree) = hir::hir_def::kotlin::plugin::tree(db, file) {
+    if let Some(tree) = jvm_index::hir_def::kotlin::plugin::tree(db, file) {
         return matches!(
             tree.data(item),
-            hir::hir_def::kotlin::item_tree::KotlinItemData::Constructor(_)
-                | hir::hir_def::kotlin::item_tree::KotlinItemData::Class(_)
+            jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Constructor(_)
+                | jvm_index::hir_def::kotlin::item_tree::KotlinItemData::Class(_)
         );
     }
     matches!(
-        hir::hir_def::java::plugin::tree(db, file).data(item),
+        jvm_index::hir_def::java::plugin::tree(db, file).data(item),
         ItemData::Method(method) if method.is_constructor()
     )
 }
@@ -1064,7 +1064,7 @@ fn member_decl_name(
     }
     // A library owner is spelled with binary names ([JVMS §4.2]): nesting is
     // `$` there and `.` in the source declaration, the same normalization
-    // [`hir::library_source_decl`] applies before it looks a type up in its
+    // [`jvm_index::library_source_decl`] applies before it looks a type up in its
     // archive. `$` stays an ordinary identifier character in a source name
     // ([JLS §3.8]), which is why the rewrite only touches a classfile name.
     match method.owner.as_fqn() {
@@ -1180,14 +1180,14 @@ fn declared_resolution(
             db, class.file, class.item, &name, use_kind, params,
         )],
         OwnerLookup::Library {
-            decl: hir::LibrarySourceDecl::Loaded { file, item },
+            decl: jvm_index::LibrarySourceDecl::Loaded { file, item },
             ..
         } => vec![member_or_owner(db, file, item, &name, use_kind, params)],
         OwnerLookup::Library {
             library,
-            decl: hir::LibrarySourceDecl::Pending { entry, path },
+            decl: jvm_index::LibrarySourceDecl::Pending { entry, path },
             ..
-        } => match hir::library_sources(db, library) {
+        } => match jvm_index::library_sources(db, library) {
             Some(sources) => vec![Resolution::Pending(LibraryFileRef::Source {
                 library,
                 archive: sources.archive,
@@ -1198,7 +1198,7 @@ fn declared_resolution(
         },
         OwnerLookup::Library {
             library,
-            decl: hir::LibrarySourceDecl::Decompiled { class, path },
+            decl: jvm_index::LibrarySourceDecl::Decompiled { class, path },
             ..
         } => vec![Resolution::Pending(LibraryFileRef::Decompile {
             library,
@@ -1225,7 +1225,7 @@ fn member_or_owner(
     if let Some(component) = component_member(db, decl_file, owner_item, name, use_kind, params) {
         return component;
     }
-    let tree = hir::hir_def::java::plugin::tree(db, decl_file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, decl_file);
     Resolution::Decl {
         file: decl_file,
         item: member_item(db, decl_file, &tree, owner_item, name, use_kind, params)
@@ -1264,10 +1264,10 @@ fn component_member(
     use_kind: Use,
     params: Params<'_>,
 ) -> Option<Resolution> {
-    if !hir::hir_def::java::plugin::declares_file(db, decl_file) {
+    if !jvm_index::hir_def::java::plugin::declares_file(db, decl_file) {
         return None;
     }
-    let tree = hir::hir_def::java::plugin::tree(db, decl_file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, decl_file);
     let ItemData::Record(record) = tree.data(owner_item) else {
         return None;
     };
@@ -1294,9 +1294,9 @@ fn component_member(
         .iter()
         .position(|component| component.name.as_str() == name)?;
     let component = &record.components[index];
-    let map = hir::hir_def::db::ast_id_map(db, decl_file, tree.language);
+    let map = jvm_index::hir_def::db::ast_id_map(db, decl_file, tree.language);
     let source = base_db::parse(db, decl_file, tree.language).syntax_node(tree.language);
-    let range = hir::hir_def::java::ranges::component_name_range(map, &source, component)?;
+    let range = jvm_index::hir_def::java::ranges::component_name_range(map, &source, component)?;
     Some(Resolution::Variable {
         file: decl_file,
         range,
@@ -1340,11 +1340,11 @@ fn switch_label_resolution(
     name: &Name,
     label: ExprId,
 ) -> Vec<Resolution> {
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let Some(scrutinee) = switch_scrutinee_of(&bodies, offset, label) else {
         return Vec::new();
     };
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let items = body_items_at(db, file, &tree, offset);
     let Some(selector) = items.iter().find_map(|&item| {
         hir_ty::body_types(db, file, item)?
@@ -1421,7 +1421,7 @@ pub(crate) fn pending_library_files(
     // owner along a member's hierarchy, so a hover — which still resolves
     // through [`resolve_at`] — materializes everything it needs in one round.
     // One load per file: the walk reaches the same owner from several types.
-    let mut seen: FxHashSet<(hir::LibraryId, Arc<str>)> = FxHashSet::default();
+    let mut seen: FxHashSet<(jvm_index::LibraryId, Arc<str>)> = FxHashSet::default();
     let mut out = Vec::new();
     for resolution in recorded_reference(db, file, offset)
         .into_iter()
@@ -1436,7 +1436,7 @@ pub(crate) fn pending_library_files(
             // needs the decompiled file, so the ref is collected here.
             Resolution::LibraryMember {
                 library,
-                decl: hir::LibrarySourceDecl::Decompiled { class, path },
+                decl: jvm_index::LibrarySourceDecl::Decompiled { class, path },
                 ..
             } => LibraryFileRef::Decompile {
                 library,
@@ -1485,12 +1485,12 @@ enum Resolution {
     /// renderer matches the stub by — `None` only for a member the walk could
     /// not resolve through a signature.
     LibraryMember {
-        library: hir::LibraryId,
+        library: jvm_index::LibraryId,
         owner_fqn: Name,
         name: String,
         use_kind: Use,
         descriptor: Option<SmolStr>,
-        decl: hir::LibrarySourceDecl,
+        decl: jvm_index::LibrarySourceDecl,
     },
     /// A library file that has to be materialized before the reference can be
     /// answered: an archive entry to read, or a class to decompile.
@@ -1514,14 +1514,14 @@ enum Resolution {
 /// nothing: a qualifier that resolves to no type, a class whose superclass is
 /// not on the classpath.
 fn keyword_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<Vec<Resolution>> {
-    let bodies = hir::file_body_tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
     let expr = exprs_at(&bodies, offset).into_iter().next()?;
     let (qualifier, keyword) = match bodies.expr(expr) {
         ExprData::This { qualifier } => (qualifier, Keyword::This),
         ExprData::Super { qualifier } => (qualifier, Keyword::Super),
         _ => return None,
     };
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     // §6.5.5.1: a qualified keyword's `TypeName` is resolved in the scope of
     // the declaration whose body writes it, like any written type name.
     if let Some(qualifier) = qualifier {
@@ -1567,8 +1567,8 @@ enum Keyword {
 /// never about an argument or a type inside it, so the walk never ascends past
 /// the innermost expression ([`innermost_expr_at`]).
 fn resolve_at(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolution> {
-    let bodies = hir::file_body_tree(db, file);
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let items = body_items_at(db, file, &tree, offset);
     let item = items.first().copied();
 
@@ -1780,7 +1780,7 @@ fn key_resolution(db: &RootDatabase, file: FileId, key: &hir_ty::ClassKey) -> Ve
     match key {
         hir_ty::ClassKey::Named(fqn) => class_resolution(db, file, fqn),
         hir_ty::ClassKey::Local(class) => {
-            let tree = hir::hir_def::java::plugin::tree(db, class.file);
+            let tree = jvm_index::hir_def::java::plugin::tree(db, class.file);
             let Some(name) = tree.data(class.item).name() else {
                 return Vec::new();
             };
@@ -1851,12 +1851,12 @@ enum OwnerLookup {
     /// A workspace source class and its declaration item — the fallback target
     /// of a member the class declares without an item (an implicit
     /// constructor, a record accessor's component).
-    Source(hir::SourceClass),
+    Source(jvm_index::SourceClass),
     /// A library class and the location of its source declaration.
     Library {
-        library: hir::LibraryId,
+        library: jvm_index::LibraryId,
         fqn: Name,
-        decl: hir::LibrarySourceDecl,
+        decl: jvm_index::LibrarySourceDecl,
     },
     /// Nothing on the classpath carries the name.
     Unresolved,
@@ -1877,13 +1877,13 @@ enum MemberLookup {
 /// — which has none ([§6.7]) — answers too.
 fn members_of_source_owner(
     db: &RootDatabase,
-    owner: hir::SourceClass,
+    owner: jvm_index::SourceClass,
     name: &str,
     use_kind: Use,
     params: Params<'_>,
 ) -> MemberLookup {
     let owner_file = owner.file;
-    let tree = hir::hir_def::java::plugin::tree(db, owner_file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, owner_file);
     if let Some(item) = member_item(db, owner_file, &tree, owner.item, name, use_kind, params) {
         return MemberLookup::Found(Resolution::Decl {
             file: owner_file,
@@ -1918,12 +1918,12 @@ fn members_of_owner(
             library,
             fqn,
             decl:
-                hir::LibrarySourceDecl::Loaded {
+                jvm_index::LibrarySourceDecl::Loaded {
                     file: decl_file,
                     item: owner_item,
                 },
         } => {
-            let tree = hir::hir_def::java::plugin::tree(db, decl_file);
+            let tree = jvm_index::hir_def::java::plugin::tree(db, decl_file);
             match member_item(db, decl_file, &tree, owner_item, name, use_kind, params) {
                 Some(item) => MemberLookup::Found(Resolution::LibraryMember {
                     library,
@@ -1931,7 +1931,7 @@ fn members_of_owner(
                     name: name.to_owned(),
                     use_kind,
                     descriptor: params.descriptor().cloned(),
-                    decl: hir::LibrarySourceDecl::Loaded {
+                    decl: jvm_index::LibrarySourceDecl::Loaded {
                         file: decl_file,
                         item,
                     },
@@ -1949,9 +1949,9 @@ fn members_of_owner(
         // known: the file has to be read before the member set can be.
         OwnerLookup::Library {
             library,
-            decl: hir::LibrarySourceDecl::Pending { entry, path },
+            decl: jvm_index::LibrarySourceDecl::Pending { entry, path },
             ..
-        } => match hir::library_sources(db, library) {
+        } => match jvm_index::library_sources(db, library) {
             Some(sources) => MemberLookup::PendingSource(LibraryFileRef::Source {
                 library,
                 archive: sources.archive,
@@ -1969,7 +1969,7 @@ fn members_of_owner(
         OwnerLookup::Library {
             library,
             fqn,
-            decl: hir::LibrarySourceDecl::Decompiled { class, path },
+            decl: jvm_index::LibrarySourceDecl::Decompiled { class, path },
         } => {
             if library_declares_member(db, library, &fqn, name, use_kind, params) {
                 MemberLookup::Found(Resolution::LibraryMember {
@@ -1978,7 +1978,7 @@ fn members_of_owner(
                     name: name.to_owned(),
                     use_kind,
                     descriptor: params.descriptor().cloned(),
-                    decl: hir::LibrarySourceDecl::Decompiled { class, path },
+                    decl: jvm_index::LibrarySourceDecl::Decompiled { class, path },
                 })
             } else {
                 MemberLookup::Absent
@@ -1993,7 +1993,7 @@ fn members_of_owner(
 /// without running a decompiler over it.
 fn library_declares_member(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     owner_fqn: &Name,
     name: &str,
     use_kind: Use,
@@ -2002,7 +2002,7 @@ fn library_declares_member(
     let Some(record) = library_owner_stub(db, library, owner_fqn) else {
         return false;
     };
-    let hir::ClassOrModuleStub::Class(stub) = record.as_ref() else {
+    let jvm_index::ClassOrModuleStub::Class(stub) = record.as_ref() else {
         return false;
     };
     let interner = &db.hir_state().interner;
@@ -2065,19 +2065,19 @@ fn member_of_named_owner(
 /// The class `owner_fqn` denotes in `file`'s scope, and where its source is.
 fn owner_lookup(db: &RootDatabase, file: FileId, owner_fqn: &str) -> OwnerLookup {
     let scope = hir_ty::scope_for_file(db, file);
-    let Some(resolved) = hir::fqn_resolve(db, &scope, owner_fqn) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, &scope, owner_fqn) else {
         return OwnerLookup::Unresolved;
     };
     match &resolved {
-        hir::Resolved::Source(class) => OwnerLookup::Source(*class),
+        jvm_index::Resolved::Source(class) => OwnerLookup::Source(*class),
         // A Kotlin file's facade owns nothing a Java navigation can enter — its
         // members are the file's top-level declarations, which the Java layer
         // answers for a *member* lookup, not for navigation into a body.
-        hir::Resolved::Facade { .. } => OwnerLookup::Unresolved,
-        hir::Resolved::Library(class) => {
+        jvm_index::Resolved::Facade { .. } => OwnerLookup::Unresolved,
+        jvm_index::Resolved::Library(class) => {
             let library = class.library;
             let fqn = resolved.fqn(db);
-            match hir::library_source_decl(db, library, fqn.as_str()) {
+            match jvm_index::library_source_decl(db, library, fqn.as_str()) {
                 Some(decl) => OwnerLookup::Library {
                     library,
                     fqn: fqn.as_name().clone(),
@@ -2144,7 +2144,7 @@ fn member_item(
     use_kind: Use,
     params: Params<'_>,
 ) -> Option<ItemId> {
-    if !hir::hir_def::java::plugin::declares_file(db, file) {
+    if !jvm_index::hir_def::java::plugin::declares_file(db, file) {
         return projected_member_item(db, file, owner, name, use_kind, params);
     }
     let candidates: Vec<ItemId> = tree
@@ -2193,7 +2193,7 @@ fn projected_member_item(
     use_kind: Use,
     params: Params<'_>,
 ) -> Option<ItemId> {
-    let class = hir::Resolved::Source(hir::SourceClass { file, item: owner });
+    let class = jvm_index::Resolved::Source(jvm_index::SourceClass { file, item: owner });
     let source = hir_ty::lang::member_source(db, &class)?;
     if matches!(use_kind, Use::Field) {
         return source.fields(db, &class, &[], name).first()?.decl_item;
@@ -2227,7 +2227,7 @@ fn declares_params(db: &RootDatabase, file: FileId, item: ItemId, expected: &[Ty
     }
     // §8.4.1: a variable-arity parameter resolves to its *element* type, while
     // the resolution recorded the array type its signature erases to.
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let varargs = matches!(
         tree.data(item),
         ItemData::Method(method) if method.sig.params.last().is_some_and(|param| param.varargs)
@@ -2256,7 +2256,7 @@ fn type_resolution(
     // the local declarations whose declaring body encloses it and whose own
     // declaration precedes it.
     if let (Some(item), Some(at)) = (item, at) {
-        let tree = hir::hir_def::java::plugin::tree(db, file);
+        let tree = jvm_index::hir_def::java::plugin::tree(db, file);
         if let Some(local) = local_type_in_scope(db, file, &tree, item, at, name) {
             return vec![Resolution::Decl {
                 file,
@@ -2343,18 +2343,18 @@ fn encloses(tree: &ItemTree, ancestor: ItemId, item: ItemId) -> bool {
 /// The resolution of the canonical class name `fqn` in `file`'s scope.
 fn class_resolution(db: &RootDatabase, file: FileId, fqn: &Name) -> Vec<Resolution> {
     let scope = hir_ty::scope_for_file(db, file);
-    let Some(resolved) = hir::fqn_resolve(db, &scope, fqn.as_str()) else {
+    let Some(resolved) = jvm_index::fqn_resolve(db, &scope, fqn.as_str()) else {
         return Vec::new();
     };
     match &resolved {
-        hir::Resolved::Source(class) => vec![Resolution::Decl {
+        jvm_index::Resolved::Source(class) => vec![Resolution::Decl {
             file: class.file,
             item: class.item,
             name: fqn.simple_name().to_owned(),
         }],
         // A facade has no declaration to navigate to.
-        hir::Resolved::Facade { .. } => Vec::new(),
-        hir::Resolved::Library(class) => {
+        jvm_index::Resolved::Facade { .. } => Vec::new(),
+        jvm_index::Resolved::Library(class) => {
             let library_fqn = resolved.fqn(db);
             library_class_resolution(db, class.library, library_fqn.as_name())
         }
@@ -2364,17 +2364,18 @@ fn class_resolution(db: &RootDatabase, file: FileId, fqn: &Name) -> Vec<Resoluti
 /// The resolution of a class known to live in `library`.
 fn library_class_resolution(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     fqn: &Name,
 ) -> Vec<Resolution> {
-    match hir::library_source_decl(db, library, fqn.as_str()) {
-        Some(hir::LibrarySourceDecl::Loaded { file, item }) => vec![Resolution::Decl {
+    match jvm_index::library_source_decl(db, library, fqn.as_str()) {
+        Some(jvm_index::LibrarySourceDecl::Loaded { file, item }) => vec![Resolution::Decl {
             file,
             item,
             name: fqn.simple_name().to_owned(),
         }],
-        Some(hir::LibrarySourceDecl::Pending { entry, path }) => {
-            let Some(archive) = hir::library_sources(db, library).map(|sources| sources.archive)
+        Some(jvm_index::LibrarySourceDecl::Pending { entry, path }) => {
+            let Some(archive) =
+                jvm_index::library_sources(db, library).map(|sources| sources.archive)
             else {
                 return Vec::new();
             };
@@ -2387,7 +2388,7 @@ fn library_class_resolution(
         }
         // The class ships no sources: the decompiler has to produce (and the
         // caller materialize) its declaring view before it can be answered.
-        Some(hir::LibrarySourceDecl::Decompiled { class, path }) => {
+        Some(jvm_index::LibrarySourceDecl::Decompiled { class, path }) => {
             vec![Resolution::Pending(LibraryFileRef::Decompile {
                 library,
                 class,
@@ -2425,15 +2426,15 @@ fn decl_target(
 /// which is the spelling `Resolved::fqn` hands out for a library class.
 fn library_owner_stub(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     owner_fqn: &Name,
-) -> Option<Arc<hir::ClassOrModuleRecord>> {
+) -> Option<Arc<jvm_index::ClassOrModuleRecord>> {
     let symbol = db.hir_state().interner.get_or_intern(owner_fqn.as_str());
-    let index = hir::library_name_index(db, library);
+    let index = jvm_index::library_name_index(db, library);
     let (entry_idx, entry) = index.lookup(symbol)?;
-    hir::class_record(
+    jvm_index::class_record(
         db,
-        &hir::ResolvedClass {
+        &jvm_index::ResolvedClass {
             library,
             entry_idx,
             entry: entry.clone(),
@@ -2462,7 +2463,7 @@ fn library_owner_stub(
 /// [JVMS §4.7]: https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.7
 fn library_member_signature(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     owner_fqn: &Name,
     name: &str,
     use_kind: Use,
@@ -2470,7 +2471,7 @@ fn library_member_signature(
     source: Option<(FileId, ItemId)>,
 ) -> Option<HoverInfo> {
     let record = library_owner_stub(db, library, owner_fqn)?;
-    let hir::ClassOrModuleStub::Class(stub) = record.as_ref() else {
+    let jvm_index::ClassOrModuleStub::Class(stub) = record.as_ref() else {
         return None;
     };
     let interner = &db.hir_state().interner;
@@ -2541,17 +2542,17 @@ fn library_member_signature(
 /// instead, so `None` is the deferral the LSP layer drives.
 fn library_member_hover(
     db: &RootDatabase,
-    library: hir::LibraryId,
+    library: jvm_index::LibraryId,
     owner_fqn: &Name,
     name: &str,
     use_kind: Use,
     descriptor: Option<&str>,
-    decl: &hir::LibrarySourceDecl,
+    decl: &jvm_index::LibrarySourceDecl,
 ) -> Option<HoverInfo> {
     let source = match decl {
-        hir::LibrarySourceDecl::Loaded { file, item } => Some((*file, *item)),
-        hir::LibrarySourceDecl::Decompiled { .. } => None,
-        hir::LibrarySourceDecl::Pending { .. } => return None,
+        jvm_index::LibrarySourceDecl::Loaded { file, item } => Some((*file, *item)),
+        jvm_index::LibrarySourceDecl::Decompiled { .. } => None,
+        jvm_index::LibrarySourceDecl::Pending { .. } => return None,
     };
     library_member_signature(db, library, owner_fqn, name, use_kind, descriptor, source)
 }
@@ -2574,8 +2575,8 @@ fn library_member_hover(
 ///
 /// Resolving them costs the library's source layout and, for a class whose
 /// source is loaded, that file's symbols. Both the member's answer and the
-/// layout are therefore persisted ([`hir::cached_member_params`],
-/// [`hir::lmdb_store`]), and what is *stable* is what is persisted:
+/// layout are therefore persisted ([`jvm_index::cached_member_params`],
+/// [`jvm_index::lmdb_store`]), and what is *stable* is what is persisted:
 ///
 /// * a loaded declaring source is the authority, so its answer — names, or
 ///   none because it declares no such member — is written back;
@@ -2655,26 +2656,26 @@ fn declared_parameter_names_of(
         return unavailable;
     };
     if let Some(cached) =
-        hir::cached_member_params(db, library, owner.as_str(), &method.name, descriptor)
+        jvm_index::cached_member_params(db, library, owner.as_str(), &method.name, descriptor)
     {
         return cached
             .into_names()
             .map_or(unavailable, DeclaredParameterNames::Names);
     }
-    let Some(decl) = hir::library_source_decl(db, library, owner.as_str()) else {
+    let Some(decl) = jvm_index::library_source_decl(db, library, owner.as_str()) else {
         // Nothing will ever declare the class from a source this session reads:
         // the library ships no sources, and no decompiler is configured for it.
-        hir::cache_member_params(db, library, owner.as_str(), &method.name, descriptor, None);
+        jvm_index::cache_member_params(db, library, owner.as_str(), &method.name, descriptor, None);
         return unavailable;
     };
     let (decl_file, item) = match decl {
-        hir::LibrarySourceDecl::Loaded { file, item } => (file, item),
+        jvm_index::LibrarySourceDecl::Loaded { file, item } => (file, item),
         // The declaring view is not materialized yet. A sourced one can name
         // the member once it is loaded, so the caller is handed the file to
         // materialize; a decompiled one would start a JVM the hint path does
         // not drive.
-        hir::LibrarySourceDecl::Pending { entry, path } => {
-            return match hir::library_sources(db, library) {
+        jvm_index::LibrarySourceDecl::Pending { entry, path } => {
+            return match jvm_index::library_sources(db, library) {
                 Some(sources) => DeclaredParameterNames::Pending(LibraryFileRef::Source {
                     library,
                     archive: sources.archive,
@@ -2684,9 +2685,9 @@ fn declared_parameter_names_of(
                 None => unavailable,
             };
         }
-        hir::LibrarySourceDecl::Decompiled { .. } => return unavailable,
+        jvm_index::LibrarySourceDecl::Decompiled { .. } => return unavailable,
     };
-    let tree = hir::hir_def::java::plugin::tree(db, decl_file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, decl_file);
     let member = member_item(
         db,
         decl_file,
@@ -2713,7 +2714,7 @@ fn declared_parameter_names_of(
         // parameters of its own.
         _ => None,
     });
-    hir::cache_member_params(
+    jvm_index::cache_member_params(
         db,
         library,
         owner.as_str(),
@@ -2727,11 +2728,11 @@ fn declared_parameter_names_of(
 /// The library the class-like type `owner_fqn` denotes in `file`'s scope —
 /// `None` for a name that resolves to no library class, which is the only case
 /// a classpath member's names could still be read from.
-fn library_of(db: &RootDatabase, file: FileId, owner_fqn: &str) -> Option<hir::LibraryId> {
+fn library_of(db: &RootDatabase, file: FileId, owner_fqn: &str) -> Option<jvm_index::LibraryId> {
     let scope = hir_ty::scope_for_file(db, file);
-    match hir::fqn_resolve(db, &scope, owner_fqn)? {
-        hir::Resolved::Library(class) => Some(class.library),
-        hir::Resolved::Source(_) | hir::Resolved::Facade { .. } => None,
+    match jvm_index::fqn_resolve(db, &scope, owner_fqn)? {
+        jvm_index::Resolved::Library(class) => Some(class.library),
+        jvm_index::Resolved::Source(_) | jvm_index::Resolved::Facade { .. } => None,
     }
 }
 
@@ -2743,7 +2744,7 @@ fn source_parameter_name(
     index: usize,
 ) -> Option<String> {
     let (file, item) = source?;
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     match tree.data(item) {
         ItemData::Method(method) => method
             .sig
@@ -2811,8 +2812,8 @@ fn type_ref_name(tyref: &classfile::stub::TypeRef<hir_expand::name::Name>) -> Op
 /// no item of its own, so a hover on its declaration or on a reference to it
 /// (both of which a definition answers) renders nothing yet.
 pub(crate) fn hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<HoverInfo> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
-    let bodies = hir::file_body_tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
 
     // A resolved reference outranks everything below: what the user is asking
     // about is the declaration the reference names — its header *and* its
@@ -3033,14 +3034,14 @@ fn body_items_at(
 fn item_header(db: &RootDatabase, file: FileId, tree: &ItemTree, item: ItemId) -> Option<String> {
     let data = tree.data(item);
     let simple = data.name()?.simple_name();
-    Some(match hir::java::plugin::symbol_kind(data)? {
-        hir::SourceSymbolKind::Method => {
+    Some(match jvm_index::java::plugin::symbol_kind(data)? {
+        jvm_index::SourceSymbolKind::Method => {
             crate::java::symbols::method_signature(db, file, item, simple, true)
         }
-        hir::SourceSymbolKind::Field => {
+        jvm_index::SourceSymbolKind::Field => {
             format!("{simple}: {}", crate::symbols::item_ty(db, file, item))
         }
-        hir::SourceSymbolKind::EnumConstant => simple.to_owned(),
+        jvm_index::SourceSymbolKind::EnumConstant => simple.to_owned(),
         kind => format!("{} {}", kind.label(), simple),
     })
 }
@@ -3050,7 +3051,7 @@ fn item_header(db: &RootDatabase, file: FileId, tree: &ItemTree, item: ItemId) -
 /// declaration may live in another file — a reference into an already-loaded
 /// library source resolves to an item of that file, not of the one hovered.
 fn declaration_hover(db: &RootDatabase, file: FileId, item: ItemId) -> Option<HoverInfo> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     Some(HoverInfo {
         value: item_header(db, file, &tree, item)?,
         docs: crate::docs::hover_docs(db, file, item),
@@ -3069,7 +3070,7 @@ fn declaration_hover(db: &RootDatabase, file: FileId, item: ItemId) -> Option<Ho
 /// from the file's symbol index: a *local* class-like declaration
 /// ([JLS §14.3](https://docs.oracle.com/javase/specs/jls/se26/html/jls-14.html#jls-14.3))
 /// has no canonical name ([§6.7]) and is deliberately absent from that index
-/// (`hir::file_symbols`), yet its own name is exactly what a hover on it asks
+/// (`jvm_index::file_symbols`), yet its own name is exactly what a hover on it asks
 /// about.
 ///
 /// The name is the same token [`self_target`] answers a definition with, so the
@@ -3137,12 +3138,12 @@ fn innermost_expr_at(bodies: &BodyTree, offset: TextSize) -> Option<ExprId> {
 pub(crate) fn declaration_name_range(
     db: &RootDatabase,
     file: FileId,
-    item: hir::hir_def::jvm::ids::ItemId,
+    item: jvm_index::hir_def::jvm::ids::ItemId,
 ) -> Option<TextRange> {
-    let language = hir::file_item_tree(db, file).language();
-    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let language = jvm_index::file_item_tree(db, file).language();
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let parse = ide_db::base_db::parse(db, file, language);
     let source = parse.syntax_node(language);
-    let map = hir::hir_def::db::ast_id_map(db, file, language);
-    hir::hir_def::java::ranges::item_name_range(map, &source, &tree, item)
+    let map = jvm_index::hir_def::db::ast_id_map(db, file, language);
+    jvm_index::hir_def::java::ranges::item_name_range(map, &source, &tree, item)
 }
