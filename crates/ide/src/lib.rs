@@ -63,6 +63,21 @@ impl AnalysisHost {
     /// Applies the change to the database. Outstanding snapshots are canceled.
     pub fn apply_change(&mut self, change: Change) {
         change.apply(&mut self.db);
+        // A settle point: drop the LRU-bound per-file memos (parse/item/body/
+        // type/report) so retention does not track every file ever analyzed.
+        self.trigger_lru_eviction();
+    }
+
+    /// Evicts the LRU-bound per-file memos (parse/item/body/type/report).
+    ///
+    /// Like a write, this cancels outstanding snapshots and blocks until they
+    /// drop, and starts a new revision when the cancellation counter overflows;
+    /// the server's request loop already relies on that around
+    /// [`Self::apply_change`], so an eviction at a client-edit boundary adds no
+    /// new starvation.
+    pub fn trigger_lru_eviction(&mut self) {
+        use ide_db::base_db::salsa::Database as _;
+        self.db.trigger_lru_eviction();
     }
 
     /// Enables the persistent (LMDB-backed) library cache under

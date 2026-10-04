@@ -299,8 +299,9 @@ pub(crate) fn inherited_defaults(
 /// Memoized per (scope, receiver, name, context). See [`member_set`]. The
 /// receiver and context are interned ids ([`TyData`], [`ContextKey`]), so
 /// repeated member sets at the same call site hit the query cache instead of
-/// re-walking the class hierarchy.
-#[salsa::tracked(returns(clone))]
+/// re-walking the class hierarchy. `lru = 4096` bounds the retained sets;
+/// evicted at the next revision and re-walked on demand.
+#[salsa::tracked(returns(clone), lru = 4096)]
 pub(crate) fn member_set_query(
     db: &dyn TyDatabase,
     scope: ScopeId,

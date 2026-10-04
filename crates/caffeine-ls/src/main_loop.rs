@@ -161,6 +161,15 @@ impl GlobalState {
             // re-run on a fresh snapshot.
             self.run_pending_requests();
 
+            // A background pass deferred an LRU eviction while the client
+            // channel was busy; run it now that no request is waiting. Evicting
+            // with a request queued would cancel that request's snapshot and
+            // make the user retry the same query.
+            if self.pending_lru_eviction && receiver.is_empty() {
+                self.analysis_host.trigger_lru_eviction();
+                self.pending_lru_eviction = false;
+            }
+
             if self.exit_requested {
                 break Ok(());
             }

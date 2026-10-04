@@ -249,8 +249,11 @@ pub(crate) fn record_component_types_query<'db>(
 }
 /// The inferred types of the expressions and locals of the body of `item` in
 /// `file` ([JLS §15], [§14.4](https://docs.oracle.com/javase/specs/jls/se26/html/jls-14.html#jls-14.4)),
-/// memoized per (file, item). See [`crate::java::infer::body_types_impl`].
-#[salsa::tracked(returns(clone))]
+/// memoized per (file, item). `lru = 4096` bounds the retained body types to
+/// roughly the open files' items plus one background chunk; evicted at the
+/// next revision and re-inferred on demand. See
+/// [`crate::java::infer::body_types_impl`].
+#[salsa::tracked(returns(clone), lru = 4096)]
 pub(crate) fn body_types_query<'db>(
     db: &'db dyn TyDatabase,
     key: ItemKey<'db>,
@@ -263,9 +266,11 @@ pub(crate) fn body_types_query<'db>(
 /// The declaration-level diagnostics
 /// ([JLS §8.4.8.3](https://docs.oracle.com/javase/specs/jls/se26/html/jls-8.html#jls-8.4.8.3),
 /// [§9.4.1.3](https://docs.oracle.com/javase/specs/jls/se26/html/jls-9.html#jls-9.4.1.3))
-/// of every class in `file`, memoized per file. See
+/// of every class in `file`, memoized per file. `lru = 512` bounds the
+/// retained diagnostics to roughly the open files plus one background chunk.
+/// See
 /// [`crate::java::decl_check::class_diagnostics_impl`].
-#[salsa::tracked(returns(clone))]
+#[salsa::tracked(returns(clone), lru = 512)]
 pub(crate) fn class_diagnostics_query(
     db: &dyn TyDatabase,
     file: FileText,

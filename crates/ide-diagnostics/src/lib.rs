@@ -233,7 +233,11 @@ pub(crate) fn collect_declaration_diagnostics(
 /// file invalidates only the innermost queries whose inputs actually changed
 /// (the type queries), so re-deriving an
 /// unaffected file's report here is a hash compare, not a re-inference.
-#[salsa::tracked(returns(clone))]
+///
+/// `lru = 512` bounds the retained reports to roughly the open files plus one
+/// background chunk; evicted at the next revision and recomputed on demand
+/// from the still-memoized sub-queries.
+#[salsa::tracked(returns(clone), lru = 512)]
 pub(crate) fn file_diagnostics_query(
     db: &dyn hir::TyDatabase,
     file: FileText,
@@ -260,10 +264,10 @@ pub fn file_diagnostics(db: &dyn hir::TyDatabase, file_id: FileId) -> Arc<[Diagn
 /// the item tree: a text edit to another file invalidates only the queries
 /// whose inputs actually changed. See [`file_report`].
 ///
-/// `lru = 4096` bounds the retained reports to the most-recently-used files
-/// (rust-analyzer-style: evicted at the next revision, recomputed on demand
-/// from the still-memoized sub-queries).
-#[salsa::tracked(returns(clone), lru = 4096)]
+/// `lru = 1024` bounds the retained reports to roughly the open files plus one
+/// background chunk (rust-analyzer-style: evicted at the next revision,
+/// recomputed on demand from the still-memoized sub-queries).
+#[salsa::tracked(returns(clone), lru = 1024)]
 #[tracing::instrument(skip_all, level = "debug")]
 pub(crate) fn file_report_query(db: &dyn hir::TyDatabase, file: FileText) -> Arc<[Diagnostic]> {
     let file_id = *file.file_id(db);

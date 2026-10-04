@@ -221,6 +221,10 @@ pub struct GlobalState {
     /// Async requests cancelled by a pending salsa write, re-run once the
     /// write is applied. See [`BackgroundTaskEvent::AsyncRequestRetry`].
     pub(crate) pending_requests: Vec<PendingRequest>,
+    /// A background job asked for an LRU eviction while the client channel was
+    /// busy; it runs on the next idle iteration (see
+    /// [`GlobalState::request_lru_eviction`]).
+    pub(crate) pending_lru_eviction: bool,
     /// Cancellation tokens of in-flight async requests, keyed by request id, so
     /// `$/cancelRequest` aborts the running worker instead of letting it finish
     /// a full pull.
@@ -293,6 +297,7 @@ impl GlobalState {
             vfs: Arc::new(RwLock::new((vfs::Vfs::default(), Default::default()))),
             vfs_config_version: 0,
             pending_requests: Vec::new(),
+            pending_lru_eviction: false,
             inflight_cancellations: FxHashMap::default(),
             scan_config_version: None,
             progress_tokens: FxHashMap::default(),
@@ -489,6 +494,44 @@ impl GlobalState {
             self.thread_pool.execute(move || {
                 run(snapshot);
             });
+        }
+    }
+
+    /// Requests an LRU eviction of the per-file analysis memos after a
+    /// background chunk. `trigger_lru_eviction` cancels every outstanding
+    /// snapshot and blocks until they drop, so running it while the client
+    /// channel is busy would repeatedly cancel a user's in-flight `hover`/
+    /// `completion`/`definition`. When the channel is idle the eviction runs
+    /// now; otherwise it is deferred to the next idle main-loop iteration.
+    pub(crate) fn request_lru_eviction(&mut self, lsp_idle: bool) {
+        if lsp_idle {
+            self.analysis_host.trigger_lru_eviction();
+        } else {
+            self.pending_lru_eviction = true;
+        }
+    }
+
+    /// Keeps the documents the client has open hot after a background pass.
+    ///
+    /// Salsa's LRU cannot pin individual keys, so an eviction at the end of a
+    /// chunked pass would drop the parse/body/type memos of the very files the
+    /// user has open, costing a re-parse on the next keystroke. Touching their
+    /// reports puts those queries at the MRU end, so the next eviction reclaims
+    /// background files first. No-op when no document is open.
+    pub(crate) fn rewarm_open_documents(&mut self) {
+        let open: Vec<FileId> = {
+            let vfs = self.vfs.read();
+            self.mem_docs
+                .paths()
+                .filter_map(|path| vfs_path_to_file_id(&vfs.0, path).ok().flatten())
+                .collect()
+        };
+        if open.is_empty() {
+            return;
+        }
+        let snapshot = self.analysis_host.snapshot();
+        for file in open {
+            let _ = snapshot.file_report(file);
         }
     }
 

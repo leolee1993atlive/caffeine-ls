@@ -90,7 +90,10 @@ pub fn ast_id_map(db: &dyn DefDatabase, file_id: FileId, language: LanguageKind)
 /// safe for salsa to retain it across revisions even though it does not
 /// implement `SalsaValue` (its `FileAstId` markers and rowan fields are foreign
 /// types).
-#[salsa::tracked(unsafe(non_salsa_values))]
+/// `lru = 512` bounds the retained item trees to roughly the open files plus
+/// one background chunk; evicted at the next revision and re-lowered on
+/// demand.
+#[salsa::tracked(unsafe(non_salsa_values), lru = 512)]
 fn item_tree_query(db: &dyn DefDatabase, file: FileText) -> Arc<FileItemTree> {
     let file_id = *file.file_id(db);
     // A tracked read (see `base_db::file_language_kind`): resolves from the
@@ -117,7 +120,10 @@ pub fn file_item_tree(db: &dyn DefDatabase, file_id: FileId) -> Arc<FileItemTree
 /// SAFETY: `BodyTree` contains no database-lifetime references, so it is safe
 /// for salsa to retain it across revisions even though it does not implement
 /// `SalsaValue` (its `rowan::TextRange` fields are foreign types).
-#[salsa::tracked(unsafe(non_salsa_values))]
+/// `lru = 512` bounds the retained body trees to roughly the open files plus
+/// one background chunk; evicted at the next revision and re-lowered on
+/// demand.
+#[salsa::tracked(unsafe(non_salsa_values), lru = 512)]
 fn body_tree_query(db: &dyn DefDatabase, file: FileText) -> Arc<BodyTree> {
     let file_id = *file.file_id(db);
     let language = base_db::file_language_kind(db, file_id).unwrap_or(LanguageKind::Unknown);
