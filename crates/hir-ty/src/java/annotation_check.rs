@@ -58,11 +58,12 @@ use vfs::FileId;
 
 use crate::java::annotation_value::{self, ValueCtx};
 use crate::java::decl_check::{DeclDiagnostic, SafeVarargsRejection};
-use crate::java::range_ctx::range_ctx;
-use crate::java::resolve::{Resolver, candidate_fqns, resolve_type_ref, ty_from_library};
+use crate::java::resolve::{Resolver, candidate_fqns, resolve_type_ref};
 use crate::java::subtyping::is_assignable;
 use crate::java::ty::{Ty, TyKind};
 use crate::jvm::db::TyDatabase;
+use crate::jvm::resolve::ty_from_library;
+use crate::range_ctx::range_ctx;
 use hir_def::java::ranges;
 
 /// The element types an annotation may be applied to on a *declaration*

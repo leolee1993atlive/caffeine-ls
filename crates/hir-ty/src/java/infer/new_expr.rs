@@ -361,7 +361,7 @@ impl InferCtx<'_> {
             if !visited.insert(current.id) {
                 continue;
             }
-            for parent in crate::java::subtyping::supertypes_impl(self.db, &self.scope, &current) {
+            for parent in crate::jvm::subtyping::supertypes_impl(self.db, &self.scope, &current) {
                 let TyKind::Reference {
                     name: parent_name,
                     args: parent_args,
@@ -493,7 +493,7 @@ impl InferCtx<'_> {
                     .iter()
                     .map(|tp| Name::new(interner.resolve(&tp.name)))
                     .collect();
-                let ctx = crate::java::resolve::LibrarySignature::class(&owner);
+                let ctx = crate::jvm::resolve::LibrarySignature::class(&owner);
                 info.type_params
                     .iter()
                     .zip(names.iter())
@@ -506,9 +506,7 @@ impl InferCtx<'_> {
                             .bounds
                             .iter()
                             .map(|bound| {
-                                crate::java::resolve::ty_from_library_signature(
-                                    self.db, bound, &ctx,
-                                )
+                                crate::jvm::resolve::ty_from_library_signature(self.db, bound, &ctx)
                             })
                             .collect(),
                     })

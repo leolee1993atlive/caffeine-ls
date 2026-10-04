@@ -56,8 +56,8 @@ use syntax::java::{Lang, SyntaxKind as J};
 use vfs::FileId;
 
 use crate::java::decl_check::DeclDiagnostic;
-use crate::java::range_ctx::range_ctx;
 use crate::jvm::db::TyDatabase;
+use crate::range_ctx::range_ctx;
 use hir::JavaLanguageLevel;
 
 /// How a construct violates its source set's level, in

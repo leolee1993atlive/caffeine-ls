@@ -2858,7 +2858,7 @@ pub fn render_body_types(db: &TestDatabase, files: &[(&str, &str)]) -> String {
 
 /// Renders `input` with the capture-variable ids (`CAP#<n>`) renumbered by
 /// first-seen order. The ids come from a process-global counter
-/// ([`crate::java::ty::capture_conversion`]), so their absolute values depend
+/// ([`crate::jvm::capture::capture_conversion`]), so their absolute values depend
 /// on test scheduling; normalizing keeps snapshots deterministic.
 pub fn normalize_caps(input: &str) -> String {
     let mut out = String::with_capacity(input.len());

@@ -469,7 +469,7 @@ pub enum TypeError {
     DeprecatedUse {
         location: DiagLocation,
         api: crate::java::deprecation::DeprecatedApi,
-        deprecation: crate::java::deprecation::Deprecation,
+        deprecation: crate::jvm::deprecation::Deprecation,
         range: Option<TextRange>,
     },
     /// JEP 247: the platform API this reference resolved to is not part of the

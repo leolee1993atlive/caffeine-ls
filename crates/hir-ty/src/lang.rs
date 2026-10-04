@@ -74,6 +74,25 @@ pub trait JvmMemberSource: Sync {
     /// source. `None` for a declaration this view cannot read — callers stay
     /// permissive there.
     fn kind(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Option<(JvmClassKind, bool)>;
+
+    /// Whether `method` is a source constructor of this language. A classfile
+    /// constructor is `<init>` and is not filtered, so the default is `false`.
+    fn is_source_constructor(
+        &self,
+        db: &dyn TyDatabase,
+        method: &crate::jvm::member::MethodData,
+    ) -> bool {
+        let _ = (db, method);
+        false
+    }
+
+    /// The canonical names of the classes enclosing a local declaration,
+    /// outermost last. The default is empty: only a language that records the
+    /// chain in an item tree answers.
+    fn enclosing_named_classes(&self, db: &dyn TyDatabase, class: &hir::SourceClass) -> Vec<Name> {
+        let _ = (db, class);
+        Vec::new()
+    }
 }
 
 /// The type layer of one language (IntelliJ: the language's `JvmPsiElement`
@@ -135,7 +154,35 @@ pub trait LanguageTypes: Sync {
         db: &dyn TyDatabase,
         file: FileId,
         item: hir_expand::ids::ItemId,
-    ) -> Option<crate::java::deprecation::Deprecation>;
+    ) -> Option<crate::jvm::deprecation::Deprecation>;
+
+    /// How many type parameters `class` declares. `0` when this language has
+    /// no raw types — a use with no type arguments is then not raw
+    /// ([JLS §4.8] is a Java question). A library class is answered by
+    /// [`classfile`], not by this default.
+    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> usize {
+        let _ = (db, class);
+        0
+    }
+
+    /// The type variables a source class declares, in declaration order.
+    /// Empty when this language does not declare them on `class`.
+    fn source_type_vars(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Vec<Ty> {
+        let _ = (db, class);
+        Vec::new()
+    }
+
+    /// The declared type parameters of `class` as `(declaring scope, bounds)`,
+    /// for capture conversion ([JLS §5.1.10]). Empty when this language does
+    /// not declare them.
+    fn type_param_bounds(
+        &self,
+        db: &dyn TyDatabase,
+        class: &hir::Resolved,
+    ) -> Vec<(crate::ty::TypeVarScope, Vec<Ty>)> {
+        let _ = (db, class);
+        Vec::new()
+    }
 }
 
 /// Every registered language, in lookup order.
@@ -181,7 +228,7 @@ pub fn member_source(
 /// `Ty` model. Every language reads the result in its own types through its own
 /// codec.
 pub fn classfile() -> &'static dyn LanguageTypes {
-    &crate::java::plugin::JAVA
+    &crate::jvm::classfile::CLASSFILE
 }
 
 /// The file dependencies of `file`, answered by the language that declares it:
@@ -200,11 +247,4 @@ pub fn file_dependency_refs(db: &dyn TyDatabase, file: FileId) -> Arc<FxHashSet<
         || Arc::new(FxHashSet::default()),
         |language| language.file_dependency_refs(db, file),
     )
-}
-
-/// Whether the Java language declares `file` — the Java layer's own question at
-/// a site that must read a Java item tree by item id: a class of another
-/// language has no Java declaration, and its id indexes another model's arena.
-pub fn is_java_file(db: &dyn TyDatabase, file: FileId) -> bool {
-    hir_def::java::plugin::declares_file(db, file)
 }

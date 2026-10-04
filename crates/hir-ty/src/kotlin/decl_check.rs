@@ -1297,7 +1297,7 @@ fn range_ctx(
     db: &dyn TyDatabase,
     file: FileId,
 ) -> Option<(&hir_expand::ast_id_map::AstIdMap, syntax::SourceFile)> {
-    crate::java::range_ctx::range_ctx(db, file, LanguageKind::Kotlin)
+    crate::range_ctx::range_ctx(db, file, LanguageKind::Kotlin)
 }
 
 /// The range of a declaration's own name.

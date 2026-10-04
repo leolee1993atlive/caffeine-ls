@@ -940,7 +940,7 @@ impl InferCtx<'_> {
         // canonical name resolves to on the classpath, or a *local* class-like
         // declaration in scope ([JLS §14.3], [§6.7]). A name that no candidate
         // resolved to (a field or method of the implicit receiver) is not.
-        crate::java::resolve::reference_class(self.db, &self.scope, &ty).map(|_| ty)
+        crate::jvm::resolve::reference_class(self.db, &self.scope, &ty).map(|_| ty)
     }
 
     /// so ordinary instance field chains keep their expression treatment.
@@ -986,7 +986,7 @@ impl InferCtx<'_> {
             generic_args: Vec::new(),
         };
         let ty = resolve_type_ref(self.db, &self.scope, &self.resolver, &tyref);
-        crate::java::resolve::reference_class(self.db, &self.scope, &ty).map(|_| ty)
+        crate::jvm::resolve::reference_class(self.db, &self.scope, &ty).map(|_| ty)
     }
 
     pub(super) fn field_access(&mut self, expr: ExprId, target: Option<ExprId>, name: Name) -> Ty {

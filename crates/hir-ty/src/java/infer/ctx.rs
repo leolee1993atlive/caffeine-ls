@@ -11,8 +11,9 @@ use crate::java::{
     deprecation,
     diagnostics::{DiagLocation, TypeError},
     release_api::{self, ReleaseApi},
-    ty::{Ty, TyKind, boxed_type, capture_conversion, unboxed_primitive},
+    ty::{Ty, TyKind, boxed_type, unboxed_primitive},
 };
+use crate::jvm::capture::capture_conversion;
 use crate::jvm::member::{FieldData, MethodData};
 
 use super::{Flow, InferCtx, ResolvedMember};
@@ -144,7 +145,7 @@ impl InferCtx<'_> {
         &mut self,
         location: DiagLocation,
         api: deprecation::DeprecatedApi,
-        deprecation: deprecation::Deprecation,
+        deprecation: crate::jvm::deprecation::Deprecation,
         range: Option<TextRange>,
     ) {
         if self.deprecation_exempt(&api, deprecation) {
@@ -163,7 +164,7 @@ impl InferCtx<'_> {
     fn deprecation_exempt(
         &self,
         api: &deprecation::DeprecatedApi,
-        deprecation: deprecation::Deprecation,
+        deprecation: crate::jvm::deprecation::Deprecation,
     ) -> bool {
         deprecation::is_exempt(
             self.db,
@@ -414,8 +415,8 @@ impl InferCtx<'_> {
         let a_unboxes = matches!(a.kind(self.db), TyKind::Reference { name, .. } if unboxed_primitive(name.as_str()).is_some());
         let b_unboxes = matches!(b.kind(self.db), TyKind::Reference { name, .. } if unboxed_primitive(name.as_str()).is_some());
         if a_unboxes != b_unboxes {
-            return crate::java::subtyping::is_subtype(self.db, &self.scope, &a, &b)
-                || crate::java::subtyping::is_subtype(self.db, &self.scope, &b, &a);
+            return crate::jvm::subtyping::is_subtype(self.db, &self.scope, &a, &b)
+                || crate::jvm::subtyping::is_subtype(self.db, &self.scope, &b, &a);
         }
         true
     }
@@ -443,7 +444,7 @@ impl InferCtx<'_> {
             // §5.1.7: boxing, optionally followed by a reference widening.
             (TyKind::Primitive(f), TyKind::Reference { .. }) => {
                 let boxed = Ty::reference(self.db, boxed_type(*f), Vec::new());
-                boxed == to || crate::java::subtyping::is_subtype(self.db, &self.scope, &boxed, &to)
+                boxed == to || crate::jvm::subtyping::is_subtype(self.db, &self.scope, &boxed, &to)
             }
             // §5.1.8/§5.5: unboxing, optionally followed by a *widening*
             // primitive conversion — an unbox-then-narrow cast (`(int) aLong`)
@@ -490,8 +491,8 @@ impl InferCtx<'_> {
 
     /// still fail; that is not a compile-time error per §5.5.1).
     pub(super) fn reference_castable(&self, from: Ty, to: Ty) -> bool {
-        let sub = crate::java::subtyping::is_subtype(self.db, &self.scope, &from, &to);
-        let sup = crate::java::subtyping::is_subtype(self.db, &self.scope, &to, &from);
+        let sub = crate::jvm::subtyping::is_subtype(self.db, &self.scope, &from, &to);
+        let sup = crate::jvm::subtyping::is_subtype(self.db, &self.scope, &to, &from);
         if sub || sup {
             return true;
         }

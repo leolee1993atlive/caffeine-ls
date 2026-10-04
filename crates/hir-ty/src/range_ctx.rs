@@ -4,7 +4,7 @@
 //! syntax node through a [`FileAstId`](hir_expand::ast_id_map::FileAstId) —
 //! so the diagnostics and the IDE resolve the source ranges they need from
 //! the file's [`AstIdMap`] and current syntax tree
-//! ([`crate::java::ranges`]). This module owns the one bit of database glue
+//! (the language's range helpers). This module owns the one bit of database glue
 //! all consumers share: fetching the memoized parse and map of a file and
 //! guarding files whose language is not known (an `Unknown` file has no
 //! parse, and range resolution for it is meaningless — an empty item tree).

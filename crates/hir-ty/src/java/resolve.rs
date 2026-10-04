@@ -36,9 +36,9 @@ use hir_expand::body::{BodyId, BodyTree, LocalId, StmtData, StmtId};
 use hir_expand::name::Name;
 
 use crate::{
-    java::range_ctx::range_ctx,
-    java::ty::{BoundKind, Ty, TyKind, TypeVarScope, WildcardBound, ty_from_type_ref},
+    java::ty::{BoundKind, Ty, TyKind, TypeVarScope, WildcardBound},
     jvm::db::TyDatabase,
+    range_ctx::range_ctx,
 };
 
 /// A type parameter in scope at some item, together with the declaration that
@@ -108,37 +108,6 @@ impl LocalDeclSite {
     /// first).
     pub fn local_type(&self, name: &Name) -> Option<&ScopedLocalType> {
         self.local_types.iter().rfind(|local| &local.name == name)
-    }
-}
-
-/// The classfile `Signature`-lowering context ([JVMS §4.7.9.1]): the class
-/// whose signature is being lowered and, for a member signature, the member,
-/// so every type variable in it is attributed to its declaring parameter
-/// ([JLS §4.4], [§6.3]).
-#[derive(Clone, Copy)]
-pub struct LibrarySignature<'a> {
-    pub owner: &'a Name,
-    pub method: Option<(&'a Name, &'a [Name])>,
-}
-
-impl<'a> LibrarySignature<'a> {
-    /// The signature of the class `owner` itself (its supertypes, its own
-    /// type-parameter bounds, a field's type).
-    pub fn class(owner: &'a Name) -> Self {
-        Self {
-            owner,
-            method: None,
-        }
-    }
-
-    /// The scope of the type variable `name` within this signature
-    /// ([§6.4.1](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.4.1)):
-    /// the member's own parameter when the member declares that name,
-    /// otherwise the class's. A name declared by neither is an enclosing
-    /// class's parameter, which this signature does not carry an argument for
-    /// — it keeps the class identity so no binding of this class captures it.
-    fn scope_of(&self, name: &Name) -> TypeVarScope {
-        TypeVarScope::library(self.owner, self.method, name)
     }
 }
 
@@ -796,24 +765,6 @@ fn local_member_type(
     })
 }
 
-/// The declaration a reference type denotes: its declaration for a *local*
-/// class-like type ([JLS §14.3], [§6.7] — it has no canonical name to resolve),
-/// otherwise the class [`hir::fqn_resolve`] finds for its canonical name
-/// against `scope`'s classpath.
-pub fn reference_class(
-    db: &dyn TyDatabase,
-    scope: &hir::ResolutionScope,
-    ty: &Ty,
-) -> Option<hir::Resolved> {
-    let TyKind::Reference { name, local, .. } = ty.kind(db) else {
-        return None;
-    };
-    match local {
-        Some(class) => Some(hir::Resolved::Source(*class)),
-        None => hir::fqn_resolve(db, scope, name.as_str()),
-    }
-}
-
 /// Resolves a source [`TypeRef<Name>`] to a [`Ty`]. Reference names are
 /// resolved per
 /// [JLS §6.5.5](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.5.5)
@@ -1077,7 +1028,7 @@ fn inherited_member_candidates(
     for enclosing in resolver.enclosing() {
         let mut queue = vec![Ty::reference(db, enclosing.clone(), Vec::new())];
         while let Some(ty) = queue.pop() {
-            for parent in crate::java::subtyping::supertypes_impl(db, scope, &ty) {
+            for parent in crate::jvm::subtyping::supertypes_impl(db, scope, &ty) {
                 if parent.is_error(db) {
                     continue;
                 }
@@ -1705,47 +1656,6 @@ pub fn source_class_binding(
         .collect()
 }
 
-/// The substitution instantiating the type parameters of a *classfile* class
-/// declaration ([JVMS §4.7.9.1](https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.7.9.1)):
-/// each declared parameter, keyed by its declaring class's binary name
-/// ([JLS §4.4], [§6.3]), bound to the receiver's argument at the same index.
-pub fn library_class_binding(
-    owner: &Name,
-    params: &[Name],
-    args: &[Ty],
-) -> FxHashMap<TypeVarScope, Ty> {
-    params
-        .iter()
-        .zip(args.iter().copied())
-        .map(|(name, arg)| {
-            (
-                TypeVarScope::LibraryClass {
-                    owner: owner.clone(),
-                    name: name.clone(),
-                },
-                arg,
-            )
-        })
-        .collect()
-}
-
-/// The canonical fully qualified name of a resolved class
-/// ([JLS §6.7](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.7)),
-/// or `None` for a source class (whose name is not a binary one — bindings
-/// against it are keyed by its declaring item, not by name).
-fn resolved_fqn(db: &dyn TyDatabase, resolved: &hir::Resolved) -> Option<Name> {
-    match resolved {
-        hir::Resolved::Library(class) => {
-            let interner = &db.hir_state().interner;
-            Some(Name::new(interner.resolve(&class.entry.fqn)))
-        }
-        // A facade's name is the one the compiler gives it: it is not a
-        // *declaration*, so it has no binary name of its own either.
-        hir::Resolved::Facade { fqn, .. } => Some(fqn.clone()),
-        hir::Resolved::Source(_) => None,
-    }
-}
-
 /// The canonical fully qualified name of a *source* class, or `None` when the
 /// file declares no Java items — a Kotlin declaration has no Java item tree,
 /// and indexing the empty tree with its id is out of bounds
@@ -1910,7 +1820,9 @@ pub(crate) fn class_is_generic(
         // A class of another language declares no *Java* type parameters: its
         // own live in the model its layer reads, and a Java reference to it is
         // not a raw type ([JLS §4.8] is a Java-source question).
-        hir::Resolved::Source(source) if !crate::lang::is_java_file(db, source.file) => false,
+        hir::Resolved::Source(source) if !hir_def::java::plugin::declares_file(db, source.file) => {
+            false
+        }
         // A source class is generic when its declaration carries them.
         hir::Resolved::Source(source) => {
             let tree = hir_def::java::plugin::tree(db, source.file);
@@ -1943,9 +1855,11 @@ pub fn type_argument_bound_violation(
     class_fqn: &Name,
     args: &[Ty],
 ) -> Option<(Name, Ty, Ty)> {
-    let resolved = hir::fqn_resolve(db, scope, class_fqn.as_str())?;
     // The declared type parameters as (declaring scope, resolved bounds).
-    let type_params = class_param_bounds(db, &resolved, class_fqn)?;
+    let type_params = crate::jvm::resolve::declared_type_param_scopes(db, scope, class_fqn);
+    if type_params.is_empty() {
+        return None;
+    }
     if type_params.len() != args.len() {
         return None;
     }
@@ -1973,96 +1887,12 @@ pub fn type_argument_bound_violation(
             if arg.contains_infer_var(db) || bound.contains_infer_var(db) {
                 continue;
             }
-            if !crate::java::subtyping::is_subtype(db, scope, &arg, &bound) {
+            if !crate::jvm::subtyping::is_subtype(db, scope, &arg, &bound) {
                 return Some((var_scope.name().clone(), arg, bound));
             }
         }
     }
     None
-}
-
-/// The declared type parameters of `resolved` as
-/// `(declaring scope, resolved bounds)` in declaration order, or `None` when
-/// the declaration's parameter list cannot be recovered. `class_fqn` is the
-/// name the class was resolved under, used for the classfile identity when the
-/// stub carries no canonical name.
-fn class_param_bounds(
-    db: &dyn TyDatabase,
-    resolved: &hir::Resolved,
-    class_fqn: &Name,
-) -> Option<Vec<(TypeVarScope, Vec<Ty>)>> {
-    match resolved {
-        // A Kotlin file's facade declares none.
-        hir::Resolved::Facade { .. } => None,
-        hir::Resolved::Library(_) => {
-            let info = hir::class_generic_info(db, resolved)?;
-            let interner = &db.hir_state().interner;
-            let owner = resolved_fqn(db, resolved).unwrap_or_else(|| class_fqn.clone());
-            let names: Vec<Name> = info
-                .type_params
-                .iter()
-                .map(|tp| Name::new(interner.resolve(&tp.name)))
-                .collect();
-            let ctx = LibrarySignature::class(&owner);
-            Some(
-                info.type_params
-                    .iter()
-                    .zip(names.iter())
-                    .map(|(tp, name)| {
-                        (
-                            TypeVarScope::LibraryClass {
-                                owner: owner.clone(),
-                                name: name.clone(),
-                            },
-                            tp.bounds
-                                .iter()
-                                .map(|b| ty_from_library_signature(db, b, &ctx))
-                                .collect(),
-                        )
-                    })
-                    .collect(),
-            )
-        }
-        hir::Resolved::Source(source) => {
-            // A class of another language has no Java item tree to read its
-            // declared parameters from. Its type arguments are its own
-            // language's, and the transforms this feeds — capture conversion
-            // ([JLS §5.1.10](https://docs.oracle.com/javase/specs/jls/se26/html/jls-5.html#jls-5.10)),
-            // which exists to turn a wildcard into a fresh variable — have
-            // nothing to capture in a type that carries none. The bounds are
-            // read where they belong, by that language's own subtyping
-            // (through [`crate::lang`]).
-            if !crate::lang::is_java_file(db, source.file) {
-                return None;
-            }
-            let tree = hir_def::java::plugin::tree(db, source.file);
-            let params = match tree.data(source.item) {
-                ItemData::Class(d) | ItemData::Interface(d) => Some(&d.type_params),
-                ItemData::Record(d) => Some(&d.type_params),
-                _ => None,
-            }?;
-            let file_scope = scope_for_file(db, source.file);
-            let resolver = Resolver::for_item(db, source.file, &tree, source.item);
-            Some(
-                params
-                    .iter()
-                    .map(|tp| {
-                        (
-                            TypeVarScope::Class {
-                                file: source.file,
-                                item: source.item,
-                                name: tp.name.clone(),
-                            },
-                            tp.bounds
-                                .iter()
-                                .map(|b| resolve_type_ref(db, &file_scope, &resolver, b))
-                                .collect(),
-                        )
-                    })
-                    .collect(),
-            )
-        }
-    }
 }
 
 /// The declared type parameters of the class named by `fqn` as
@@ -2095,10 +1925,43 @@ pub fn declared_type_param_scopes(
     scope: &hir::ResolutionScope,
     fqn: &Name,
 ) -> Vec<(TypeVarScope, Vec<Ty>)> {
-    let Some(resolved) = hir::fqn_resolve(db, scope, fqn.as_str()) else {
+    crate::jvm::resolve::declared_type_param_scopes(db, scope, fqn)
+}
+
+/// The declared type parameters of a Java source class, as
+/// `(declaring scope, resolved bounds)`. A class of another language, or a
+/// declaration that is not a class, interface or record, declares none here.
+pub(crate) fn java_source_type_param_bounds(
+    db: &dyn TyDatabase,
+    source: hir::SourceClass,
+) -> Vec<(TypeVarScope, Vec<Ty>)> {
+    if !hir_def::java::plugin::declares_file(db, source.file) {
         return Vec::new();
+    }
+    let tree = hir_def::java::plugin::tree(db, source.file);
+    let params = match tree.data(source.item) {
+        ItemData::Class(d) | ItemData::Interface(d) => &d.type_params,
+        ItemData::Record(d) => &d.type_params,
+        _ => return Vec::new(),
     };
-    class_param_bounds(db, &resolved, fqn).unwrap_or_default()
+    let file_scope = scope_for_file(db, source.file);
+    let resolver = Resolver::for_item(db, source.file, &tree, source.item);
+    params
+        .iter()
+        .map(|tp| {
+            (
+                TypeVarScope::Class {
+                    file: source.file,
+                    item: source.item,
+                    name: tp.name.clone(),
+                },
+                tp.bounds
+                    .iter()
+                    .map(|b| resolve_type_ref(db, &file_scope, &resolver, b))
+                    .collect(),
+            )
+        })
+        .collect()
 }
 
 /// The declared type of an item: the type of a field, the return type of a
@@ -2127,45 +1990,6 @@ pub fn record_component_types(db: &dyn TyDatabase, file_id: FileId, item_id: Ite
     )
 }
 
-/// Lowers a library [`TypeRef<Symbol>`] to a [`Ty`]. Library names are
-/// already fully qualified, so only the interner lookup is needed.
-pub fn ty_from_library(db: &dyn TyDatabase, tyref: &TypeRef<hir::Symbol>) -> Ty {
-    let interner = &db.hir_state().interner;
-    ty_from_type_ref(
-        db,
-        tyref,
-        &mut |symbol| Name::new(interner.resolve(symbol)),
-        // No declaring context: a classfile signature lowered without its
-        // class cannot attribute its type variables to a parameter, so they
-        // become unscoped — no declaration-scoped binding captures them.
-        // Signatures that *do* carry type variables go through
-        // [`ty_from_library_signature`].
-        &mut |symbol| TypeVarScope::Unnamed {
-            name: Name::new(interner.resolve(symbol)),
-        },
-    )
-}
-
-/// Lowers a classfile [`TypeRef<Symbol>`] of `ctx`'s `Signature` attribute
-/// ([JVMS §4.7.9.1](https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.7.9.1)),
-/// attributing every type variable to its declaring parameter ([JLS §4.4],
-/// [§6.3]) so a binding of that declaration instantiate exactly its own
-/// variables — and never a same-named parameter of another declaration
-/// ([§6.4.1]).
-pub fn ty_from_library_signature(
-    db: &dyn TyDatabase,
-    tyref: &TypeRef<hir::Symbol>,
-    ctx: &LibrarySignature<'_>,
-) -> Ty {
-    let interner = &db.hir_state().interner;
-    ty_from_type_ref(
-        db,
-        tyref,
-        &mut |symbol| Name::new(interner.resolve(symbol)),
-        &mut |symbol| ctx.scope_of(&Name::new(interner.resolve(symbol))),
-    )
-}
-
 pub(crate) fn item_data(tree: &ItemTree, item_id: ItemId) -> Option<&ItemData> {
     // `Arena::get` panics on unknown ids, so bounds-check first.
     (item_id.0.0 < tree.items.len() as u32).then(|| tree.data(item_id))
@@ -2180,6 +2004,6 @@ pub(crate) fn java_item(
     db: &dyn TyDatabase,
     source: hir::SourceClass,
 ) -> Option<(triomphe::Arc<ItemTree>, ItemId)> {
-    crate::lang::is_java_file(db, source.file)
+    hir_def::java::plugin::declares_file(db, source.file)
         .then(|| (hir_def::java::plugin::tree(db, source.file), source.item))
 }

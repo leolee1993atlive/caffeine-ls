@@ -72,12 +72,12 @@ use crate::{
     java::const_eval::Const,
     java::diagnostics::TypeError,
     java::method::access_context,
-    java::range_ctx::range_ctx,
     java::resolve::{Resolver, item_data, resolve_type_ref, scope_for_file},
     java::ty::Ty,
     jvm::db::TyDatabase,
     jvm::member::{FieldData, MethodData},
     jvm::member_set::InvocationContext,
+    range_ctx::range_ctx,
 };
 
 /// The inferred types of a method or constructor body.
@@ -749,7 +749,7 @@ struct InferCtx<'a> {
     /// declaration's own `@Deprecated`, or the innermost enclosing one that
     /// carries it. A use inside such a declaration is exempt from *ordinary*
     /// deprecation warnings.
-    enclosing_deprecated: Option<crate::java::deprecation::Deprecation>,
+    enclosing_deprecated: Option<crate::jvm::deprecation::Deprecation>,
     /// The outermost class of this body's declaration — the unit the
     /// same-outermost-class exemption of [JLS §9.6.4.6] compares.
     use_site_outermost: Option<Name>,

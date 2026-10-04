@@ -57,7 +57,7 @@ impl Lookup<'_> {
     fn accessible(&self, member: &Member, owner: &Name, ctx: &InvocationContext) -> bool {
         // §6.6.2.1 restricts protected instance fields and methods by receiver
         // type, not member types (including non-static member classes).
-        crate::java::method::member_accessible(
+        crate::jvm::access::member_accessible(
             self.db,
             self.scope,
             member.access,

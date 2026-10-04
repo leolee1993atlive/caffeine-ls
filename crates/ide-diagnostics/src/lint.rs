@@ -133,8 +133,7 @@ pub(crate) struct SuppressionScope {
 /// `range` and carries its key; [`is_suppressed`] performs that check.
 pub(crate) fn suppression_scopes(db: &dyn TyDatabase, file_id: FileId) -> Vec<SuppressionScope> {
     let tree = hir::hir_def::java::plugin::tree(db, file_id);
-    let Some((_map, source)) = hir_ty::java::range_ctx::range_ctx(db, file_id, tree.language)
-    else {
+    let Some((_map, source)) = hir_ty::range_ctx::range_ctx(db, file_id, tree.language) else {
         return Vec::new();
     };
     let SourceFile::Java(file) = &source else {
@@ -334,10 +333,10 @@ const SUPPRESS_WARNINGS: &str = "java.lang.SuppressWarnings";
 
 /// The lint key of a deprecation: `removal` for a terminally deprecated
 /// element, `deprecation` otherwise ([JLS §9.6.4.6]).
-fn lint_of_deprecation(deprecation: hir_ty::java::deprecation::Deprecation) -> LintKey {
+fn lint_of_deprecation(deprecation: hir_ty::jvm::deprecation::Deprecation) -> LintKey {
     match deprecation {
-        hir_ty::java::deprecation::Deprecation::Ordinary => LintKey::Deprecation,
-        hir_ty::java::deprecation::Deprecation::Terminal => LintKey::Removal,
+        hir_ty::jvm::deprecation::Deprecation::Ordinary => LintKey::Deprecation,
+        hir_ty::jvm::deprecation::Deprecation::Terminal => LintKey::Removal,
     }
 }
 

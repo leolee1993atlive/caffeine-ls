@@ -2,9 +2,9 @@
 
 use super::lub::least_upper_bound;
 use crate::{
-    java::subtyping::is_subtype,
     java::ty::{Ty, TyKind, boxed_type},
     jvm::db::TyDatabase,
+    jvm::subtyping::is_subtype,
 };
 
 /// The instantiation of one inference variable from its resolved bounds

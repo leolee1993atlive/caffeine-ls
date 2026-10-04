@@ -15,16 +15,15 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use smol_str::SmolStr;
 
-use hir_def::java::item_tree::ItemData;
 use hir_def::jvm::access::JvmAccessFlags;
 use hir_expand::name::Name;
 
 use crate::{
-    java::method::{is_accessible, member_accessible, mode_allows, self_type_param_indexes},
-    java::subtyping::supertypes_query,
-    java::ty::capture_conversion,
+    jvm::access::{is_accessible, member_accessible, mode_allows, self_type_param_indexes},
+    jvm::capture::capture_conversion,
     jvm::db::{ContextKey, ScopeId, ScopeKind, TyDatabase},
     jvm::member::{Access, ClassKey, FieldData, JvmClassKind, MethodData, MethodTypeParam},
+    jvm::subtyping::supertypes_query,
     ty::{Ty, TyData, TyKind, TypeVarScope},
 };
 
@@ -230,7 +229,7 @@ pub fn member_set_ignoring_access(
 /// deduped by overriding signature
 /// ([JLS §8.4.8.1](https://docs.oracle.com/javase/specs/jls/se26/html/jls-8.html#jls-8.4.8.1)):
 /// the raw material of the declaration-level checks ([§8.4.8.3],
-/// [§9.4.1.3], [`crate::java::decl_check`]). The access-control context is that of
+/// [§9.4.1.3], the declaration checks). The access-control context is that of
 /// the declaring class itself ([§6.6.1]).
 ///
 /// This is a *declaration-level* enumeration ([JLS §8.2], [§9.2]): declared
@@ -627,10 +626,9 @@ fn member_set_impl(
             }
             let owner = |m: &MethodData| m.owner.as_ty(db, Vec::new());
             let (new_owner, seen_owner) = (owner(&method), owner(seen));
-            let new_derives =
-                crate::java::subtyping::is_subtype(db, scope, &new_owner, &seen_owner);
+            let new_derives = crate::jvm::subtyping::is_subtype(db, scope, &new_owner, &seen_owner);
             let seen_derives =
-                crate::java::subtyping::is_subtype(db, scope, &seen_owner, &new_owner);
+                crate::jvm::subtyping::is_subtype(db, scope, &seen_owner, &new_owner);
             let new_wins = if new_derives != seen_derives {
                 new_derives
             } else if seen.declaring_interface != method.declaring_interface {
@@ -642,8 +640,8 @@ fn member_set_impl(
             } else {
                 // Same declaring kind and unrelated owners (or the same
                 // owner): fall back to return covariance, then walk order.
-                crate::java::subtyping::is_subtype(db, scope, &method.ret, &seen.ret)
-                    && !crate::java::subtyping::is_subtype(db, scope, &seen.ret, &method.ret)
+                crate::jvm::subtyping::is_subtype(db, scope, &method.ret, &seen.ret)
+                    && !crate::jvm::subtyping::is_subtype(db, scope, &seen.ret, &method.ret)
             };
             if new_wins {
                 *seen = method.clone();
@@ -666,7 +664,7 @@ fn member_set_impl(
 /// (`List<String>`) is not raw, even with empty args in the latter's case the
 /// args are present.
 fn is_raw_use(db: &dyn TyDatabase, scope: &hir::ResolutionScope, receiver: &Ty) -> bool {
-    let crate::java::ty::TyKind::Reference { name, args, .. } = receiver.kind(db) else {
+    let TyKind::Reference { name, args, .. } = receiver.kind(db) else {
         return false;
     };
     if !args.is_empty() {
@@ -675,25 +673,15 @@ fn is_raw_use(db: &dyn TyDatabase, scope: &hir::ResolutionScope, receiver: &Ty) 
     let Some(resolved) = hir::fqn_resolve(db, scope, name.as_str()) else {
         return false;
     };
-    match resolved {
-        // A Kotlin file's facade declares no type parameters.
-        hir::Resolved::Facade { .. } => false,
-        hir::Resolved::Library(library) => {
-            hir::class_generic_info(db, &hir::Resolved::Library(library))
-                .is_some_and(|info| !info.type_params.is_empty())
+    let count = match &resolved {
+        hir::Resolved::Library(_) => {
+            crate::lang::classfile().declared_type_param_count(db, &resolved)
         }
-        hir::Resolved::Source(source) => {
-            let tree = hir_def::java::plugin::tree(db, source.file);
-            let Some(data) = crate::java::resolve::item_data(&tree, source.item) else {
-                return false;
-            };
-            match data {
-                ItemData::Class(d) | ItemData::Interface(d) => !d.type_params.is_empty(),
-                ItemData::Record(d) => !d.type_params.is_empty(),
-                _ => false,
-            }
-        }
-    }
+        class => crate::lang::for_class(db, class)
+            .map(|language| language.declared_type_param_count(db, class))
+            .unwrap_or(0),
+    };
+    count != 0
 }
 
 /// Whether two methods declare the same overriding signature
@@ -778,7 +766,7 @@ fn abstract_methods_impl(
         };
         // §6.7: the closure is seeded with each class's *declaration* — a
         // local functional interface ([JLS §14.3]) is its own item.
-        let Some(resolved) = crate::java::resolve::reference_class(db, scope, &t) else {
+        let Some(resolved) = crate::jvm::resolve::reference_class(db, scope, &t) else {
             continue;
         };
         let args = args.clone();
@@ -929,7 +917,7 @@ pub fn class_kind(
     scope: &hir::ResolutionScope,
     ty: &Ty,
 ) -> Option<(JvmClassKind, bool)> {
-    let resolved = crate::java::resolve::reference_class(db, scope, ty)?;
+    let resolved = crate::jvm::resolve::reference_class(db, scope, ty)?;
     match &resolved {
         hir::Resolved::Library(_) => crate::lang::classfile().member_source().kind(db, &resolved),
         _ => crate::lang::member_source(db, &resolved)?.kind(db, &resolved),
@@ -982,7 +970,7 @@ fn class_methods(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) -
     // §6.7: the receiver's declaration — a *local* class's own item, or the
     // class its canonical name resolves to.
     let Some(resolved) =
-        crate::java::resolve::reference_class(db, &scope_id.kind(db).to_scope(), ty)
+        crate::jvm::resolve::reference_class(db, &scope_id.kind(db).to_scope(), ty)
     else {
         return Vec::new();
     };
@@ -1088,7 +1076,7 @@ fn library_type_erasure<'a>(
                     Vec::new(),
                 );
             }
-            _ => break crate::java::resolve::ty_from_library(db, tyref).erasure(db),
+            _ => break crate::jvm::resolve::ty_from_library(db, tyref).erasure(db),
         }
     };
     for _ in 0..dimensions {
@@ -1103,7 +1091,7 @@ fn library_type_erasure<'a>(
 /// the method's own parameters (generic methods) keep their type parameters —
 /// [`pick_method`] instantiates them by invocation type inference
 /// ([JLS §18.5.2]).
-fn library_class_methods(
+pub(crate) fn library_class_methods(
     db: &dyn TyDatabase,
     class: hir::ResolvedClass,
     args: Vec<Ty>,
@@ -1154,7 +1142,7 @@ fn library_class_methods(
     let mut out = Vec::new();
     for method in &class.methods {
         // An empty name is the wildcard of the declaration-level walk
-        // ([§9.8], [`crate::java::decl_check`]); no method can be named "".
+        // ([§9.8], the declaration checks); no method can be named "".
         if !name.is_empty() && interner.resolve(&method.name) != name {
             continue;
         }
@@ -1182,12 +1170,12 @@ fn library_class_methods(
             .map(|tp| Name::new(interner.resolve(&tp.name)))
             .collect();
         let method_name = Name::new(interner.resolve(&method.name));
-        let signature = crate::java::resolve::LibrarySignature {
+        let signature = crate::jvm::resolve::LibrarySignature {
             owner: &owner,
             method: Some((&method_name, &method_names)),
         };
         let member_lower = |tyref: &hir::TypeRef<hir::Symbol>| {
-            crate::java::resolve::ty_from_library_signature(db, tyref, &signature)
+            crate::jvm::resolve::ty_from_library_signature(db, tyref, &signature)
                 .substitute(db, &binding)
         };
         // JLS §4.8 with §5.1.9: an instance member reached through a raw
@@ -1381,7 +1369,7 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
     // §6.7: the receiver's declaration — a *local* class's own item, or the
     // class its canonical name resolves to.
     let Some(resolved) =
-        crate::java::resolve::reference_class(db, &scope_id.kind(db).to_scope(), ty)
+        crate::jvm::resolve::reference_class(db, &scope_id.kind(db).to_scope(), ty)
     else {
         return Vec::new();
     };
@@ -1398,7 +1386,7 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
 
 /// The fields of a library class, instantiated with the class's type
 /// parameters bound to `args`.
-fn library_class_fields(
+pub(crate) fn library_class_fields(
     db: &dyn TyDatabase,
     class: hir::ResolvedClass,
     args: Vec<Ty>,
@@ -1425,8 +1413,8 @@ fn library_class_fields(
     // with the receiver's arguments, keyed by the classfile parameters'
     // declaring scopes.
     let binding: FxHashMap<TypeVarScope, Ty> =
-        crate::java::resolve::library_class_binding(&owner, &class_names, &args);
-    let class_ctx = crate::java::resolve::LibrarySignature::class(&owner);
+        crate::jvm::resolve::library_class_binding(&owner, &class_names, &args);
+    let class_ctx = crate::jvm::resolve::LibrarySignature::class(&owner);
     let declaring_package = package_of(&fqn);
     let declaring_top_level = Some(top_level_of(&fqn));
     let mut out = Vec::new();
@@ -1442,7 +1430,7 @@ fn library_class_fields(
             if is_raw && !is_static {
                 library_type_erasure(db, &field.field_type, &class.type_params, &[])
             } else {
-                crate::java::resolve::ty_from_library_signature(db, &field.field_type, &class_ctx)
+                crate::jvm::resolve::ty_from_library_signature(db, &field.field_type, &class_ctx)
                     .substitute(db, &binding)
             }
         };

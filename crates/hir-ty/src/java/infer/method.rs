@@ -13,12 +13,12 @@ use rustc_hash::FxHashSet;
 use crate::java::{
     diagnostics::{NonStaticThisKind, TypeError},
     resolve::resolve_type_ref,
-    subtyping::supertypes_impl,
     ty::{Ty, TyKind},
 };
 use crate::jvm::member::MethodData;
 use crate::jvm::member_set::InvocationMode;
 use crate::jvm::member_set::member_set;
+use crate::jvm::subtyping::supertypes_impl;
 
 use super::{
     InferCtx, ResolvedMember, body_in_flight, body_types,

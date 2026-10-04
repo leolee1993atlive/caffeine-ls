@@ -25,8 +25,8 @@ use hir_def::kotlin::item_tree::{KotlinAnnotationRef, KotlinItemData};
 use hir_expand::ids::ItemId;
 use vfs::FileId;
 
-use crate::java::deprecation::Deprecation;
 use crate::jvm::db::TyDatabase;
+use crate::jvm::deprecation::Deprecation;
 use crate::kotlin::jvm_view::annotation_fqn;
 use crate::kotlin::resolve::KotlinResolver;
 

@@ -6,9 +6,9 @@
 //! at display time live here, one place per diagnostic.
 
 use hir_expand::body::BodyTree;
-use hir_ty::java::deprecation::Deprecation;
 use hir_ty::java::diagnostics::{IllegalAccessKind, NonStaticThisKind};
 use hir_ty::java::ty::Ty;
+use hir_ty::jvm::deprecation::Deprecation;
 use hir_ty::{TyDatabase, TypeError};
 use rowan::TextRange;
 use syntax::{DiagnosticCode, JavaDiagnosticCode};

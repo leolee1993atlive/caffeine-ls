@@ -25,7 +25,6 @@ pub mod level_check;
 pub mod method;
 pub mod name_check;
 pub mod plugin;
-pub mod range_ctx;
 pub mod raw_type;
 pub mod release_api;
 pub mod resolve;

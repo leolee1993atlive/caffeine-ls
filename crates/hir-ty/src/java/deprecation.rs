@@ -40,17 +40,9 @@ use crate::java::resolve::{
 };
 use crate::java::ty::Ty;
 use crate::jvm::db::TyDatabase;
+use crate::jvm::deprecation::Deprecation;
 use crate::jvm::member::MethodData;
 use crate::jvm::member_set::{source_top_level, top_level_of};
-
-/// How a declaration is deprecated ([JLS §9.6.4.6]): a plain `@Deprecated`, or
-/// `@Deprecated(forRemoval = true)` — *terminally* deprecated, whose use is a
-/// warning javac reports by default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Deprecation {
-    Ordinary,
-    Terminal,
-}
 
 /// The one deprecated API a reference names, in the shape javac's message
 /// quotes it: `{api} in {owner} has been deprecated`.

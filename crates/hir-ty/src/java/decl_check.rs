@@ -20,7 +20,6 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use triomphe::Arc;
 use vfs::FileId;
 
-use crate::java::range_ctx::range_ctx;
 use crate::java::release_api::ReleaseApi;
 use crate::java::resolve::scope_for_file;
 use crate::java::subtyping;
@@ -29,6 +28,7 @@ use crate::jvm::db::TyDatabase;
 use crate::jvm::member::{Access, MethodData};
 use crate::jvm::member_set::{InvocationContext, InvocationMode};
 use crate::jvm::member_set::{all_methods_raw, inherited_defaults, member_set};
+use crate::range_ctx::range_ctx;
 use base_db::LanguageKind;
 use hir_def::java::ranges;
 
@@ -764,7 +764,7 @@ pub enum DeclDiagnostic {
     /// deprecated.
     DeprecatedUse {
         api: crate::java::deprecation::DeprecatedApi,
-        deprecation: crate::java::deprecation::Deprecation,
+        deprecation: crate::jvm::deprecation::Deprecation,
         range: Option<rowan::TextRange>,
     },
 }
@@ -1105,7 +1105,7 @@ pub(crate) fn module_diagnostics_impl(db: &dyn TyDatabase, file: FileId) -> Vec<
                 crate::java::resolve::resolve_type_ref(db, &scope, &resolver, implementation);
             if !service.is_error(db)
                 && !implementation_ty.is_error(db)
-                && !crate::java::subtyping::is_subtype(db, &scope, &implementation_ty, &service)
+                && !crate::jvm::subtyping::is_subtype(db, &scope, &implementation_ty, &service)
             {
                 let range = first_type_ref_range(db, file, &tree, implementation);
                 out.push(DeclDiagnostic::ServiceImplementationNotSubtype {
@@ -1378,7 +1378,7 @@ fn check_class(
                     // variable ([§8.4.4] adaptation, [§4.6]).
                     let super_ret_erasure = super_method.ret.erasure(db);
                     if !super_method.ret.is_error(db)
-                        && !subtyping::is_subtype(
+                        && !crate::jvm::subtyping::is_subtype(
                             db,
                             scope,
                             &method.ret.clone(),
@@ -1945,7 +1945,7 @@ fn check_class(
     {
         let super_ty = crate::java::resolve::resolve_type_ref(db, scope, &resolver, super_ref);
         let throwable = Ty::reference(db, "java.lang.Throwable", Vec::new());
-        if crate::java::subtyping::is_subtype(db, scope, &super_ty, &throwable) {
+        if crate::jvm::subtyping::is_subtype(db, scope, &super_ty, &throwable) {
             out.push(DeclDiagnostic::GenericCannotExtendThrowable {
                 class: class.name.clone(),
                 range: item_name_range(db, file, tree, item),
@@ -2333,7 +2333,8 @@ fn related(
     }
     let a_ty = a.as_ty(db, Vec::new());
     let b_ty = b.as_ty(db, Vec::new());
-    subtyping::is_subtype(db, scope, &a_ty, &b_ty) || subtyping::is_subtype(db, scope, &b_ty, &a_ty)
+    crate::jvm::subtyping::is_subtype(db, scope, &a_ty, &b_ty)
+        || crate::jvm::subtyping::is_subtype(db, scope, &b_ty, &a_ty)
 }
 
 /// §8.4.8.3: whether access `a` is strictly weaker than access `b` — the
@@ -2411,7 +2412,7 @@ fn in_own_supertype_cycle(db: &dyn TyDatabase, scope: &hir::ResolutionScope, fqn
         if !visited.insert(name.as_str().to_owned()) {
             continue;
         }
-        for parent in subtyping::supertypes_impl(db, scope, &ty) {
+        for parent in crate::jvm::subtyping::supertypes_impl(db, scope, &ty) {
             let Some((parent_name, _)) = parent.as_reference(db) else {
                 continue;
             };
@@ -3052,7 +3053,7 @@ fn sealed_permits(
                     .permitted_subclasses
                     .iter()
                     .map(|tyref| {
-                        crate::java::resolve::ty_from_library(db, tyref)
+                        crate::jvm::resolve::ty_from_library(db, tyref)
                             .as_reference(db)
                             .map(|(name, _)| name.clone())
                             .unwrap_or_else(|| Name::new(""))
@@ -3945,7 +3946,7 @@ fn local_class_diagnostics(
         };
         for super_ref in super_refs {
             let ty = crate::java::resolve::resolve_type_ref(db, scope, &resolver, super_ref);
-            let Some(resolved) = crate::java::resolve::reference_class(db, scope, &ty) else {
+            let Some(resolved) = crate::jvm::resolve::reference_class(db, scope, &ty) else {
                 continue;
             };
             if !class_is_sealed(db, &resolved) {

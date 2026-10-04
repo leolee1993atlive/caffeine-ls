@@ -1053,7 +1053,7 @@ impl InferCtx<'_> {
                     }
                     if clause_tys.iter().all(|clause_ty| {
                         catch_tys.iter().any(|earlier| {
-                            crate::java::subtyping::is_subtype(
+                            crate::jvm::subtyping::is_subtype(
                                 self.db,
                                 &self.scope,
                                 &clause_ty.clone(),

@@ -8,10 +8,16 @@
 //! interned keys ([`db`]), the member vocabulary every language's type layer
 //! speaks ([`member`]) and the classfile-shaped member set built on it
 //! ([`member_set`]). Language-specific resolution and inference live in
-//! [`crate::java`]; [`crate::kotlin`] builds its own type layer on top of this
+//! the Java layer; the Kotlin layer builds its own type layer on top of this
 //! substrate.
 
+pub mod access;
+pub mod capture;
+pub mod classfile;
 pub mod db;
+pub mod deprecation;
 pub mod member;
 pub mod member_set;
+pub mod resolve;
+pub mod subtyping;
 pub mod ty;

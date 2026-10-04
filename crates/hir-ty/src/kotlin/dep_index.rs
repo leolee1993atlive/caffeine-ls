@@ -323,7 +323,7 @@ fn source_supertypes(db: &dyn TyDatabase, source: hir::SourceClass) -> Vec<Ty> {
     if hir_def::kotlin::plugin::model(&items).is_some() {
         return db::supertypes(db, source.file, source.item).to_vec();
     }
-    crate::java::subtyping::source_supertypes(db, source, &[])
+    crate::java::subtyping::java_source_supertypes(db, source, &[])
 }
 
 /// The named type references of a *declaration* item ([KLS

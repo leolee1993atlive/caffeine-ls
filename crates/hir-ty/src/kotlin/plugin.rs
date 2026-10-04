@@ -86,7 +86,7 @@ impl LanguageTypes for Kotlin {
         db: &dyn TyDatabase,
         file: FileId,
         item: hir_expand::ids::ItemId,
-    ) -> Option<crate::java::deprecation::Deprecation> {
+    ) -> Option<crate::jvm::deprecation::Deprecation> {
         crate::kotlin::deprecation::item_deprecation(db, file, item)
     }
 }

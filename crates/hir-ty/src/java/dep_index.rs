@@ -41,7 +41,7 @@ use hir_expand::{
 use crate::{
     java::db::{body_types_query, item_ty_query, method_params_query},
     java::name_check::{body_type_refs, expr_forest_type_refs, item_type_refs},
-    java::subtyping::source_supertypes,
+    java::subtyping::java_source_supertypes,
     jvm::db::{ItemKey, TyDatabase},
 };
 
@@ -116,7 +116,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
     for (id, data) in all_items_data(&tree) {
         if is_class_like(data) {
             let source = hir::SourceClass { file, item: id };
-            for super_ty in source_supertypes(db, source, &[]) {
+            for super_ty in java_source_supertypes(db, source, &[]) {
                 super_ty.for_each_reference(db, &mut |name, local| {
                     record_source(
                         db,
@@ -138,7 +138,7 @@ pub(crate) fn file_resolved_deps_impl(db: &dyn TyDatabase, file: FileId) -> FxHa
     //    receiver is `A` but whose declaration lives on `A`'s superclass `C`
     //    (in a third file) only depends on `C`'s file through this walk.
     while let Some(source) = queue.pop() {
-        for super_ty in source_supertypes(db, source, &[]) {
+        for super_ty in java_source_supertypes(db, source, &[]) {
             super_ty.for_each_reference(db, &mut |name, local| {
                 record_source(
                     db,

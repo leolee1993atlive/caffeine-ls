@@ -88,7 +88,7 @@ impl InferCtx<'_> {
     pub(super) fn concrete_arg_ty(&mut self, arg: ExprId) -> Ty {
         let ty = self.with_target(None, |this| this.infer_expr(arg));
         if ty.contains_wildcard(self.db) {
-            crate::java::ty::capture_conversion(self.db, &self.scope, ty)
+            crate::jvm::capture::capture_conversion(self.db, &self.scope, ty)
         } else {
             ty
         }

@@ -9,8 +9,9 @@ use crate::java::{
     diagnostics::TypeError,
     inference::least_upper_bound,
     method::pick_method,
-    ty::{Ty, TyKind, capture_conversion, numeric_promotion, unboxed_primitive},
+    ty::{Ty, TyKind, numeric_promotion, unboxed_primitive},
 };
+use crate::jvm::capture::capture_conversion;
 
 use super::InferCtx;
 

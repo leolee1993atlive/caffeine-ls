@@ -64,10 +64,10 @@ pub(crate) fn local_decl_sites_query(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DeprecationInfo {
     /// The declaration's own `@Deprecated`, when it carries one.
-    pub own: Option<crate::java::deprecation::Deprecation>,
+    pub own: Option<crate::jvm::deprecation::Deprecation>,
     /// `own` or, failing that, the innermost enclosing declaration's — the
     /// deprecation that exempts the body from ordinary deprecation warnings.
-    pub enclosing: Option<crate::java::deprecation::Deprecation>,
+    pub enclosing: Option<crate::jvm::deprecation::Deprecation>,
 }
 
 /// For every item of `file`: whether the declaration itself is deprecated, and
@@ -89,7 +89,7 @@ pub(crate) fn deprecated_enclosing_query(
         scope: &hir::ResolutionScope,
         tree: &hir_def::java::item_tree::ItemTree,
         id: ItemId,
-        inherited: Option<crate::java::deprecation::Deprecation>,
+        inherited: Option<crate::jvm::deprecation::Deprecation>,
         map: &mut FxHashMap<ItemId, DeprecationInfo>,
     ) {
         let resolver = Resolver::for_item(db, file_id, tree, id);

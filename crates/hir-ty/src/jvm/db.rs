@@ -3,7 +3,7 @@
 //!
 //! [`TyDatabase`] extends [`hir::HirDatabase`] with everything a type layer
 //! needs — a language adds its own tracked queries as an extension trait
-//! ([`crate::java::db`]). [`ItemKey`], [`ScopeId`] and [`ContextKey`] exist so
+//! (a language's own query extension). [`ItemKey`], [`ScopeId`] and [`ContextKey`] exist so
 //! that per-item work, the per-pair subtype/supertype walks and the member set
 //! of a name can key salsa queries on cheap `Copy` values instead of on the
 //! values themselves.
@@ -34,7 +34,7 @@ pub struct ItemKey {
 
 /// The set of libraries a type query may see: the interned analogue of
 /// [`hir::ResolutionScope`]. Interned (rather than passed as a plain value) so
-/// it can key the memoized subtype/supertype queries in [`crate::java::subtyping`].
+/// it can key the memoized subtype/supertype queries in [`crate::jvm::subtyping`].
 #[salsa::interned(unsafe(no_lifetime), debug, revisions = usize::MAX)]
 pub struct ScopeId {
     pub kind: ScopeKind,

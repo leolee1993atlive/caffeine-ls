@@ -257,7 +257,7 @@ impl InferCtx<'_> {
             return false;
         };
         for earlier in prior.iter() {
-            if crate::java::subtyping::is_subtype(self.db, &self.scope, pattern_ty, earlier) {
+            if crate::jvm::subtyping::is_subtype(self.db, &self.scope, pattern_ty, earlier) {
                 self.report(TypeError::PatternDominated { pattern });
                 return false;
             }
@@ -356,7 +356,7 @@ impl InferCtx<'_> {
         }
         let parameterized =
             matches!(dst.kind(self.db), TyKind::Reference { args, .. } if !args.is_empty());
-        let plain_subtype = crate::java::subtyping::is_subtype(self.db, &self.scope, src, dst);
+        let plain_subtype = crate::jvm::subtyping::is_subtype(self.db, &self.scope, src, dst);
         if parameterized && !plain_subtype {
             self.report(TypeError::UncheckedConversion {
                 expr,
@@ -417,7 +417,7 @@ impl InferCtx<'_> {
             let parameterized =
                 matches!(formal.kind(self.db), TyKind::Reference { args, .. } if !args.is_empty());
             if parameterized
-                && !crate::java::subtyping::is_subtype(self.db, &self.scope, actual, formal)
+                && !crate::jvm::subtyping::is_subtype(self.db, &self.scope, actual, formal)
             {
                 self.report(TypeError::UncheckedArgument {
                     expr,
@@ -461,7 +461,7 @@ impl InferCtx<'_> {
         {
             return;
         }
-        if crate::java::subtyping::is_subtype(self.db, &self.scope, src, dst) {
+        if crate::jvm::subtyping::is_subtype(self.db, &self.scope, src, dst) {
             return;
         }
         self.report(TypeError::UncheckedCast {

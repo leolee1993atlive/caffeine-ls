@@ -32,12 +32,12 @@ use crate::{
     java::decl_check::DeclDiagnostic,
     java::deprecation::{self, DeprecatedReference},
     java::diagnostics::DiagLocation,
-    java::range_ctx::range_ctx,
     java::release_api,
     java::resolve::{NameResolution, Resolver, item_data, resolve_name_checked, resolve_type_ref},
     java::ty::Ty,
     jvm::db::TyDatabase,
     jvm::member_set::{InvocationContext, member_set, pick_field},
+    range_ctx::range_ctx,
 };
 use hir_def::java::ranges;
 
@@ -601,7 +601,7 @@ fn check_reference_deprecation(
     resolver: &Resolver,
     name: &Name,
     range: Option<TextRange>,
-    enclosing: Option<deprecation::Deprecation>,
+    enclosing: Option<crate::jvm::deprecation::Deprecation>,
     outermost: &Name,
     out: &mut Vec<DeclDiagnostic>,
 ) {

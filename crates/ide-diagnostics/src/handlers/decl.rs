@@ -7,8 +7,8 @@
 
 use hir_ty::TyDatabase;
 use hir_ty::java::decl_check::{DeclDiagnostic, DuplicateContainer, SafeVarargsRejection};
-use hir_ty::java::deprecation::Deprecation;
 use hir_ty::java::ty::Ty;
+use hir_ty::jvm::deprecation::Deprecation;
 use syntax::{DiagnosticCode, JavaDiagnosticCode};
 
 pub fn code(diag: &DeclDiagnostic) -> DiagnosticCode {

@@ -6,7 +6,6 @@ use triomphe::Arc;
 
 use base_db::LanguageKind;
 use hir_def::java::item_tree::ItemData;
-use hir_def::jvm::access::JvmAccessFlags;
 use hir_expand::name::Name;
 use rustc_hash::FxHashSet;
 use vfs::FileId;
@@ -47,7 +46,7 @@ impl LanguageTypes for Java {
     }
 
     fn supertypes(&self, db: &dyn TyDatabase, scope: &hir::ResolutionScope, ty: Ty) -> Vec<Ty> {
-        subtyping::supertypes(db, scope, &ty)
+        subtyping::java_language_supertypes(db, scope, ty)
     }
 
     fn access_context(
@@ -72,8 +71,72 @@ impl LanguageTypes for Java {
         db: &dyn TyDatabase,
         file: FileId,
         item: hir_expand::ids::ItemId,
-    ) -> Option<crate::java::deprecation::Deprecation> {
+    ) -> Option<crate::jvm::deprecation::Deprecation> {
         crate::java::deprecation::source_item(db, file, item)
+    }
+
+    fn declared_type_param_count(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> usize {
+        let hir::Resolved::Source(source) = class else {
+            return 0;
+        };
+        let tree = hir_def::java::plugin::tree(db, source.file);
+        let Some(data) = item_data(&tree, source.item) else {
+            return 0;
+        };
+        match data {
+            ItemData::Class(d) | ItemData::Interface(d) => d.type_params.len(),
+            ItemData::Record(d) => d.type_params.len(),
+            _ => 0,
+        }
+    }
+
+    fn source_type_vars(&self, db: &dyn TyDatabase, class: &hir::Resolved) -> Vec<Ty> {
+        let hir::Resolved::Source(class) = class else {
+            return Vec::new();
+        };
+        let tree = hir_def::java::plugin::tree(db, class.file);
+        let Some(data) = item_data(&tree, class.item) else {
+            return Vec::new();
+        };
+        let declared = match data {
+            ItemData::Class(d) | ItemData::Interface(d) => &d.type_params,
+            ItemData::Record(d) => &d.type_params,
+            _ => return Vec::new(),
+        };
+        let scope = crate::java::resolve::scope_for_file(db, class.file);
+        let resolver = crate::java::resolve::Resolver::for_item(db, class.file, &tree, class.item);
+        declared
+            .iter()
+            .map(|param| {
+                let bounds = param
+                    .bounds
+                    .iter()
+                    .map(|bound| {
+                        crate::java::resolve::resolve_type_ref(db, &scope, &resolver, bound)
+                    })
+                    .collect();
+                Ty::type_var(
+                    db,
+                    crate::ty::TypeVarScope::Class {
+                        file: class.file,
+                        item: class.item,
+                        name: param.name.clone(),
+                    },
+                    bounds,
+                )
+            })
+            .collect()
+    }
+
+    fn type_param_bounds(
+        &self,
+        db: &dyn TyDatabase,
+        class: &hir::Resolved,
+    ) -> Vec<(crate::ty::TypeVarScope, Vec<Ty>)> {
+        let hir::Resolved::Source(source) = class else {
+            return Vec::new();
+        };
+        crate::java::resolve::java_source_type_param_bounds(db, *source)
     }
 }
 
@@ -145,28 +208,8 @@ impl JvmMemberSource for Java {
             // A file's facade is a final class ([`crate::kotlin`]'s top-level
             // declarations compile into one).
             hir::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
-            hir::Resolved::Library(library) => {
-                let record = hir::class_record(db, library)?;
-                let classfile::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
-                    return None;
-                };
-                // JVM access flags ([JVMS §4.1]): an interface carries
-                // ACC_INTERFACE (an annotation type both it and
-                // ACC_ANNOTATION), an enum ACC_ENUM, a final class ACC_FINAL.
-                // A record is implicitly final ([§8.10]).
-                let flags = JvmAccessFlags::from_bits_retain(class.flags);
-                let kind = if flags.is_interface() {
-                    match flags.is_annotation() {
-                        true => JvmClassKind::Annotation,
-                        false => JvmClassKind::Interface,
-                    }
-                } else if flags.is_enum() {
-                    JvmClassKind::Enum
-                } else {
-                    JvmClassKind::Class
-                };
-                Some((kind, flags.is_final() || class.is_record))
-            }
+            // A library class is answered by the classfile entry, not here.
+            hir::Resolved::Library(_) => None,
             hir::Resolved::Source(source) => {
                 let tree = hir_def::java::plugin::tree(db, source.file);
                 match item_data(&tree, source.item)? {
@@ -188,5 +231,24 @@ impl JvmMemberSource for Java {
                 }
             }
         }
+    }
+
+    fn is_source_constructor(&self, db: &dyn TyDatabase, method: &MethodData) -> bool {
+        let (Some(file), Some(item)) = (method.owner_file, method.decl_item) else {
+            return false;
+        };
+        if !hir_def::java::plugin::declares_file(db, file) {
+            return false;
+        }
+        let tree = hir_def::java::plugin::tree(db, file);
+        matches!(
+            item_data(&tree, item),
+            Some(ItemData::Method(constructor)) if constructor.sig.ret.is_none()
+        )
+    }
+
+    fn enclosing_named_classes(&self, db: &dyn TyDatabase, class: &hir::SourceClass) -> Vec<Name> {
+        let tree = hir_def::java::plugin::tree(db, class.file);
+        crate::java::resolve::enclosing_type_chain(&tree, class.item)
     }
 }

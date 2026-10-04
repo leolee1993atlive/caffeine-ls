@@ -20,7 +20,8 @@
 //!   structured diagnostics the checks produce ([`java::decl_check`],
 //!   [`java::name_check`], [`java::diagnostics`], [`java::dep_index`],
 //!   [`java::const_eval`]);
-//! * [`kotlin`] — the Kotlin type layer scaffold.
+//! * [`kotlin`] — the Kotlin type layer scaffold. The shared member walk
+//!   lives in [`jvm`], and library classes are answered by [`lang::classfile`].
 //!
 //! The [`Ty`] model ([`java::ty`], [JLS §4.1](https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.1)–[§4.8](https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.8)):
 //!
@@ -93,6 +94,7 @@ pub mod java;
 pub mod jvm;
 pub mod kotlin;
 pub mod lang;
+pub mod range_ctx;
 pub mod ty;
 
 pub use jvm::db::TyDatabase;
@@ -110,16 +112,18 @@ pub use java::release_api::ReleaseApi;
 pub use java::resolve::scope_for_file as scope_for_test;
 pub use java::resolve::{
     NameResolution, Resolver, TypeParamDeclaration, item_ty, method_params, record_component_types,
-    resolve_type_name_at, resolve_type_ref, scope_for_file, ty_from_library,
-    type_param_declaration,
+    resolve_type_name_at, resolve_type_ref, scope_for_file, type_param_declaration,
 };
-pub use java::subtyping::{is_assignable, is_subtype, supertypes};
-pub use java::ty::{capture_conversion, ty_from_source};
+pub use java::subtyping::is_assignable;
+pub use java::ty::ty_from_source;
+pub use jvm::capture::capture_conversion;
 pub use jvm::member::{Access, ClassKey, FieldData, MethodData, MethodDisplay, MethodTypeParam};
 pub use jvm::member_set::all_methods as all_methods_for_test;
 pub use jvm::member_set::{InvocationContext, InvocationMode};
 pub use jvm::member_set::{abstract_methods, member_set, pick_field, single_abstract_method};
 pub use jvm::member_set::{member_set_ignoring_access, pick_field_ignoring_access};
+pub use jvm::resolve::ty_from_library;
+pub use jvm::subtyping::{is_subtype, supertypes};
 pub use kotlin::db::body_types as kotlin_body_types;
 pub use kotlin::db::type_params as kotlin_type_params;
 pub use kotlin::db::{

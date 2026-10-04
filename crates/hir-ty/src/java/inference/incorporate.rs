@@ -4,9 +4,10 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{Constraint, Inference, InvocationPhase};
 use crate::{
-    java::subtyping::{is_assignable, is_subtype, supertypes_impl},
+    java::subtyping::is_assignable,
     java::ty::{Ty, TyKind},
     jvm::db::TyDatabase,
+    jvm::subtyping::{is_subtype, supertypes_impl},
 };
 
 impl Inference {
@@ -106,7 +107,7 @@ impl Inference {
                             TyKind::Reference { args, .. }
                                 if args.iter().any(|arg| arg.is_wildcard(db)) =>
                             {
-                                crate::java::ty::capture_conversion(db, scope, eq)
+                                crate::jvm::capture::capture_conversion(db, scope, eq)
                             }
                             _ => eq,
                         };

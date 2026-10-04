@@ -1665,7 +1665,10 @@ impl<'a> InferCtx<'a> {
     /// interface is not a Kotlin declaration.
     fn sam_parameter(&self, sam: &MethodData, param: Ty) -> Ty {
         match sam.owner_file {
-            Some(file) if !crate::lang::is_java_file(self.db, file) => {
+            Some(file)
+                if hir_def::lang::declarations(self.db, file).language()
+                    != base_db::LanguageKind::Java =>
+            {
                 super::ty::ty_from_jvm_view(self.db, param)
             }
             _ => super::ty::ty_from_java(self.db, param),
@@ -1683,7 +1686,7 @@ impl<'a> InferCtx<'a> {
     /// lambda; a *Java* interface is not gated here at all.
     fn is_kotlin_non_fun_interface(&self, ty: &Ty) -> bool {
         let Some(hir::Resolved::Source(source)) =
-            crate::java::resolve::reference_class(self.db, &self.scope, ty)
+            crate::jvm::resolve::reference_class(self.db, &self.scope, ty)
         else {
             return false;
         };
