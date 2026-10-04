@@ -17,7 +17,7 @@
 //! argument is an *expression* reference instead: it is resolved by the type
 //! layer — the member bridge, the local scope and the inference — and read back
 //! from the record that resolution left
-//! ([`hir_ty::KotlinBodyTypes::resolved`], [`recorded_reference`]). The
+//! ([`hir::KotlinBodyTypes::resolved`], [`recorded_reference`]). The
 //! parameter-name surface ([`super::declared_parameter_names`]) reads the same
 //! resolved callables: a Kotlin source one carries its names in the item tree,
 //! a classpath one in its declaring source.
@@ -204,7 +204,7 @@ pub(crate) fn hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
 
 /// The hover of an expression inside a body: the innermost expression whose
 /// range covers `offset` and whose type the inference recorded, rendered in
-/// the Kotlin spelling ([`hir_ty::display_kotlin`]).
+/// the Kotlin spelling ([`hir::display_kotlin`]).
 ///
 /// The body inference is memoized per item, so this walks the item that owns
 /// the expression and asks for the innermost match — the same "innermost wins"
@@ -223,10 +223,10 @@ fn expression_hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
         .tree
         .items
         .iter()
-        .map(|(id, _)| hir_ty::kotlin_declaration_types(db, file, hir_expand::ids::ItemId(id)))
+        .map(|(id, _)| hir::kotlin_declaration_types(db, file, hir_expand::ids::ItemId(id)))
         .collect();
     if ctx.tree.script_body.is_some() {
-        types_of.push(hir_ty::kotlin_script_body_types(db, file));
+        types_of.push(hir::kotlin_script_body_types(db, file));
     }
     for types in types_of {
         let innermost = types
@@ -240,7 +240,7 @@ fn expression_hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
         if let Some((_, expr)) = innermost {
             let ty = types.expr_ty(db, expr);
             return Some(HoverInfo {
-                value: hir_ty::display_kotlin(db, ty).to_string(),
+                value: hir::display_kotlin(db, ty).to_string(),
                 docs: None,
             });
         }
@@ -438,16 +438,16 @@ fn resolutions(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolut
             None => recorded_reference(db, file, offset),
         },
         // A name inside a body: the declaration the inference resolved it to
-        // ([`hir_ty::KotlinBodyTypes::resolved`]).
+        // ([`hir::KotlinBodyTypes::resolved`]).
         Site::Other => recorded_reference(db, file, offset),
     }
 }
 
 /// The declaration the name at `offset` resolved to, from the body inference's
-/// own record ([`hir_ty::KotlinBodyTypes::resolved`]).
+/// own record ([`hir::KotlinBodyTypes::resolved`]).
 ///
 /// The navigation layer asked `infer` for the name instead of re-resolving it:
-/// the member bridge ([`hir_ty::kotlin::method`]) decides what a name means —
+/// the member bridge ([`hir::kotlin::method`]) decides what a name means —
 /// a local, an enclosing classifier's member, a top-level declaration of
 /// another file, a Java or classfile member through its JVM view — and this
 /// reads that decision back.
@@ -498,11 +498,11 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
     for (id, _) in ctx.tree.items.iter() {
         let item = hir_expand::ids::ItemId(id);
         if ctx.tree.data(item).body_id().is_some() {
-            types_of.push(hir_ty::kotlin_declaration_types(db, file, item));
+            types_of.push(hir::kotlin_declaration_types(db, file, item));
         }
     }
     if ctx.tree.script_body.is_some() {
-        types_of.push(hir_ty::kotlin_script_body_types(db, file));
+        types_of.push(hir::kotlin_script_body_types(db, file));
     }
 
     for types in types_of {
@@ -513,7 +513,7 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
             continue;
         };
         return match resolved {
-            hir_ty::KotlinResolvedMember::Local(local) => {
+            hir::KotlinResolvedMember::Local(local) => {
                 let Some(range) = bodies.local_name_ranges.get(local.0.0 as usize).copied() else {
                     return Vec::new();
                 };
@@ -523,7 +523,7 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
                     name: bodies.local(*local).name.to_string(),
                 }]
             }
-            hir_ty::KotlinResolvedMember::Kotlin { file, item } => {
+            hir::KotlinResolvedMember::Kotlin { file, item } => {
                 let Some(target) = Ctx::new(db, *file) else {
                     return Vec::new();
                 };
@@ -543,10 +543,10 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
             }
             // Keep the recorded owner and descriptor through the shared JVM
             // navigation pipeline, including pending source/decompile views.
-            hir_ty::KotlinResolvedMember::Java(method) => {
+            hir::KotlinResolvedMember::Java(method) => {
                 member_navigation(super::java::recorded_method_navigation(db, file, method))
             }
-            hir_ty::KotlinResolvedMember::JavaField(field) => {
+            hir::KotlinResolvedMember::JavaField(field) => {
                 member_navigation(super::java::recorded_field_navigation(db, file, field))
             }
         };
@@ -704,7 +704,7 @@ fn declaration_by_fqn(db: &RootDatabase, file: FileId, fqn: &str) -> Option<Reso
     if fqn.is_empty() {
         return None;
     }
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     if let Some(resolved) = jvm_index::fqn_resolve(db, &scope, fqn) {
         return match &resolved {
             jvm_index::Resolved::Source(class) => Some(Resolution::Decl {

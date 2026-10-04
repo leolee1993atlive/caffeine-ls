@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 jvm-index.workspace = true
 hir-expand.workspace = true
-hir-ty.workspace = true
+hir.workspace = true
 ide-db.workspace = true
 rowan.workspace = true
 rustc-hash.workspace = true

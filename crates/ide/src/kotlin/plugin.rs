@@ -96,7 +96,7 @@ impl LanguageIde for Kotlin {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<Vec<String>> {
         nav::classpath_parameter_names(db, file, method)
@@ -107,7 +107,7 @@ impl LanguageIde for Kotlin {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<nav::LibraryFileRef> {
         nav::classpath_pending_parameter_names(db, file, method)
@@ -161,7 +161,7 @@ impl LanguageIde for Kotlin {
     }
 
     fn item_ty(&self, db: &RootDatabase, file: FileId, item: symbols::ItemId) -> String {
-        hir_ty::kotlin::db::item_ty(db, file, item)
+        hir::kotlin::db::item_ty(db, file, item)
             .display_simple(db)
             .to_string()
     }

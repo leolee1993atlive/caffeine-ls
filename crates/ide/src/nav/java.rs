@@ -5,7 +5,7 @@
 //! declaration. A *body* reference — a local, a field or method access, an
 //! invocation, a constructor call, a method reference — is answered from the
 //! resolution the type layer recorded while inferring the body
-//! ([`hir_ty::BodyTypes::resolved`]): the exact declaration the reference
+//! ([`hir::BodyTypes::resolved`]): the exact declaration the reference
 //! denotes, overload selection ([JLS §15.12]) included. A declaration outside
 //! the workspace has no item of its own to quote, so it is found by the
 //! signature that resolution selected: a library member by the classfile
@@ -26,7 +26,7 @@
 //! layer selected none of them: an invocation whose applicable overloads are
 //! tied ([§15.12.2.5]), or one no overload is applicable to ([§15.12.2]),
 //! denotes every declaration of the name the member set found
-//! ([`hir_ty::ResolvedMember::Unresolved`]), and navigation answers each of
+//! ([`hir::ResolvedMember::Unresolved`]), and navigation answers each of
 //! them — the same way an unresolved *type* name still denotes the class it
 //! writes ([§7.4.3]), because navigation is not a compile check. A name
 //! nothing declares stays unanswered.
@@ -91,12 +91,12 @@ use smol_str::SmolStr;
 use triomphe::Arc;
 use vfs::FileId;
 
+use hir::Ty;
 use hir_expand::{
     arena::ArenaId,
     body::{BodyTree, ExprData, ExprId, LocalId, StmtData, StmtId, SwitchLabel},
     name::Name,
 };
-use hir_ty::Ty;
 use jvm_index::JvmDatabase;
 use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 
@@ -506,8 +506,7 @@ fn type_param_target(
             _ => continue,
         };
         for param in declared {
-            let Some(declaration) = hir_ty::type_param_declaration(db, file, item, &param.name)
-            else {
+            let Some(declaration) = hir::type_param_declaration(db, file, item, &param.name) else {
                 continue;
             };
             if declaration.range.contains(offset) {
@@ -633,7 +632,7 @@ fn component_hover(
         return None;
     };
     let declared = record.components.get(component.index)?;
-    let element = hir_ty::record_component_types(db, file, component.record)
+    let element = hir::record_component_types(db, file, component.record)
         .get(component.index)?
         .display_simple(db)
         .to_string();
@@ -670,20 +669,20 @@ fn declaration_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> V
 /// type ([§15.8.2], [§9.7.1]), an enum constant or constant variable
 /// ([§6.5.6]).
 fn annotation_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resolution> {
-    match hir_ty::annotation_target(db, file, offset) {
-        Some(hir_ty::AnnotationTarget::Element(method)) => member_resolution(
+    match hir::annotation_target(db, file, offset) {
+        Some(hir::AnnotationTarget::Element(method)) => member_resolution(
             db,
             file,
-            &hir_ty::ResolvedMember::Method(method),
+            &hir::ResolvedMember::Method(method),
             Reference::Member,
         ),
-        Some(hir_ty::AnnotationTarget::Field(field)) => member_resolution(
+        Some(hir::AnnotationTarget::Field(field)) => member_resolution(
             db,
             file,
-            &hir_ty::ResolvedMember::Field(field),
+            &hir::ResolvedMember::Field(field),
             Reference::Member,
         ),
-        Some(hir_ty::AnnotationTarget::Type(fqn)) => class_resolution(db, file, &fqn),
+        Some(hir::AnnotationTarget::Type(fqn)) => class_resolution(db, file, &fqn),
         None => Vec::new(),
     }
 }
@@ -766,7 +765,7 @@ fn declaration_type_ref_targets(
         .into_iter()
         .chain(rest.into_iter().map(|(_, item)| item))
     {
-        for (name, range) in hir_ty::item_type_references(db, file, item) {
+        for (name, range) in hir::item_type_references(db, file, item) {
             if range.is_some_and(|range| range.contains(offset)) {
                 let resolved = type_resolution(
                     db,
@@ -782,7 +781,7 @@ fn declaration_type_ref_targets(
                 // — the `T` of `class Box<T>` or of `<T> T id(T v)` — so a
                 // written type *variable* denotes that parameter, not a class
                 // of the same spelling.
-                let Some(param) = hir_ty::type_param_declaration(db, file, item, &name) else {
+                let Some(param) = hir::type_param_declaration(db, file, item, &name) else {
                     return Vec::new();
                 };
                 return vec![Resolution::Variable {
@@ -889,7 +888,7 @@ fn targets(db: &RootDatabase, resolutions: Vec<Resolution>) -> Vec<NavigationTar
 pub(super) fn recorded_method_navigation(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
 ) -> (Vec<NavigationTarget>, Vec<LibraryFileRef>) {
     let reference = if method.name == "<init>" {
         Reference::Constructor
@@ -903,7 +902,7 @@ pub(super) fn recorded_method_navigation(
 pub(super) fn recorded_field_navigation(
     db: &RootDatabase,
     file: FileId,
-    field: &hir_ty::FieldData,
+    field: &hir::FieldData,
 ) -> (Vec<NavigationTarget>, Vec<LibraryFileRef>) {
     navigation(
         db,
@@ -944,7 +943,7 @@ fn navigation(
 }
 
 /// The resolutions inference recorded for the reference at `offset`, from the
-/// innermost expression there. See [`hir_ty::BodyTypes::resolved`]: an
+/// innermost expression there. See [`hir::BodyTypes::resolved`]: an
 /// expression inference never resolved has no entry, and then no *outer*
 /// expression has one for this reference either — the enclosing invocation or
 /// field access names a different declaration ([`innermost_expr_at`]).
@@ -964,14 +963,14 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
     // method that happens to carry that name.
     let reference = reference_at(&bodies, expr);
     for &item in &items {
-        let Some(types) = hir_ty::body_types(db, file, item) else {
+        let Some(types) = hir::body_types(db, file, item) else {
             continue;
         };
         let Some(member) = types.resolved.get(&expr) else {
             continue;
         };
         return match member {
-            hir_ty::ResolvedMember::Local(local) => match bodies.local_name_range(*local) {
+            hir::ResolvedMember::Local(local) => match bodies.local_name_range(*local) {
                 Some(range) => vec![Resolution::Variable {
                     file,
                     range,
@@ -986,7 +985,7 @@ fn recorded_reference(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<
 }
 
 /// Whether the expression at `expr` names a declaration — the expressions the
-/// type layer records a [`hir_ty::ResolvedMember`] for.
+/// type layer records a [`hir::ResolvedMember`] for.
 fn names_a_reference(bodies: &BodyTree, expr: ExprId) -> bool {
     matches!(
         bodies.expr(expr),
@@ -1054,11 +1053,7 @@ fn member_use_kind(reference: Reference) -> Use {
 /// declared under the class's own simple name; a classfile one under `<init>`
 /// ([JVMS §4.6]), which is no declaration's name and has to be read back as
 /// the class the owner names.
-fn member_decl_name(
-    db: &RootDatabase,
-    method: &hir_ty::MethodData,
-    reference: Reference,
-) -> String {
+fn member_decl_name(db: &RootDatabase, method: &hir::MethodData, reference: Reference) -> String {
     if reference != Reference::Constructor || method.name != "<init>" {
         return method.name.clone();
     }
@@ -1084,12 +1079,12 @@ fn member_decl_name(
 fn member_resolution(
     db: &RootDatabase,
     file: FileId,
-    member: &hir_ty::ResolvedMember,
+    member: &hir::ResolvedMember,
     reference: Reference,
 ) -> Vec<Resolution> {
     match member {
-        hir_ty::ResolvedMember::Method(method) => method_resolution(db, file, method, reference),
-        hir_ty::ResolvedMember::Field(field) => declared_resolution(
+        hir::ResolvedMember::Method(method) => method_resolution(db, file, method, reference),
+        hir::ResolvedMember::Field(field) => declared_resolution(
             db,
             file,
             field.name.clone(),
@@ -1098,12 +1093,12 @@ fn member_resolution(
             field.owner_file.zip(field.decl_item),
             &field.owner,
         ),
-        hir_ty::ResolvedMember::Local(_) => Vec::new(),
+        hir::ResolvedMember::Local(_) => Vec::new(),
         // The invocation selected no declaration — the applicable candidates
         // tie ([§15.12.2.5]), or none is applicable ([§15.12.2]). The reference
         // still names each of them, and navigation is not a compile check, so
         // every one of them is a definition.
-        hir_ty::ResolvedMember::Unresolved(methods) => methods
+        hir::ResolvedMember::Unresolved(methods) => methods
             .iter()
             .flat_map(|method| method_resolution(db, file, method, reference))
             .collect(),
@@ -1114,7 +1109,7 @@ fn member_resolution(
 fn method_resolution(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     reference: Reference,
 ) -> Vec<Resolution> {
     declared_resolution(
@@ -1153,7 +1148,7 @@ fn declared_resolution(
     use_kind: Use,
     params: Params<'_>,
     source_decl: Option<(FileId, ItemId)>,
-    owner: &hir_ty::ClassKey,
+    owner: &hir::ClassKey,
 ) -> Vec<Resolution> {
     if let Some((decl_file, item)) = source_decl {
         return vec![Resolution::Decl {
@@ -1347,7 +1342,7 @@ fn switch_label_resolution(
     let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let items = body_items_at(db, file, &tree, offset);
     let Some(selector) = items.iter().find_map(|&item| {
-        hir_ty::body_types(db, file, item)?
+        hir::body_types(db, file, item)?
             .exprs
             .get(&scrutinee)
             .copied()
@@ -1357,16 +1352,16 @@ fn switch_label_resolution(
     let Some(&item) = items.first() else {
         return Vec::new();
     };
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     // `case NAME` is an unqualified access to a *static* enum constant.
-    let access = hir_ty::access_context(db, file, item).with_mode(hir_ty::InvocationMode::Static);
-    let Some(field) = hir_ty::pick_field(db, &scope, &selector, name.as_str(), &access) else {
+    let access = hir::access_context(db, file, item).with_mode(hir::InvocationMode::Static);
+    let Some(field) = hir::pick_field(db, &scope, &selector, name.as_str(), &access) else {
         return Vec::new();
     };
     member_resolution(
         db,
         file,
-        &hir_ty::ResolvedMember::Field(field),
+        &hir::ResolvedMember::Field(field),
         Reference::Member,
     )
 }
@@ -1533,18 +1528,18 @@ fn keyword_target(db: &RootDatabase, file: FileId, offset: TextSize) -> Option<V
     let Some(enclosing) = enclosing_class(db, file, &tree, offset) else {
         return Some(Vec::new());
     };
-    let enclosing = hir_ty::ClassKey::of(&tree, file, enclosing);
+    let enclosing = hir::ClassKey::of(&tree, file, enclosing);
     let class = match keyword {
         Keyword::This => enclosing,
         // §8.1.4/§4.10.2: the *direct* superclass is the first supertype of a
         // class. (`super` is not written in an interface, whose supertypes are
         // its superinterfaces.)
         Keyword::Super => {
-            let scope = hir_ty::scope_for_file(db, file);
-            let supertypes = hir_ty::supertypes(db, &scope, &enclosing.as_ty(db, Vec::new()));
+            let scope = hir::scope_for_file(db, file);
+            let supertypes = hir::supertypes(db, &scope, &enclosing.as_ty(db, Vec::new()));
             let Some(super_key) = supertypes
                 .first()
-                .and_then(|ty| hir_ty::ClassKey::of_ty(db, ty))
+                .and_then(|ty| hir::ClassKey::of_ty(db, ty))
             else {
                 return Some(Vec::new());
             };
@@ -1608,9 +1603,9 @@ fn resolve_at(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resoluti
         ExprData::MethodCall { receiver, name, .. } => {
             let body = items
                 .iter()
-                .find_map(|&item| hir_ty::body_types(db, file, item));
+                .find_map(|&item| hir::body_types(db, file, item));
             let params = match body.as_deref().and_then(|body| body.resolved.get(&expr_id)) {
-                Some(hir_ty::ResolvedMember::Method(method)) => Params::Recorded {
+                Some(hir::ResolvedMember::Method(method)) => Params::Recorded {
                     types: &method.params,
                     descriptor: method.descriptor.as_ref(),
                 },
@@ -1651,7 +1646,7 @@ fn resolve_at(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resoluti
         // the *member* the qualified access names on the enclosing
         // `FieldAccess`/`MethodCall`, not the type the qualifier denotes.
         ExprData::Var(name) => {
-            let resolver = hir_ty::Resolver::for_file(&tree);
+            let resolver = hir::Resolver::for_file(&tree);
             let mut found = Vec::new();
             let mut pending = Vec::new();
             for (owner, member) in resolver.static_import_owners(name.as_str()) {
@@ -1743,7 +1738,7 @@ fn resolve_at(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<Resoluti
 /// The type of the expression `receiver`, read from the body that owns it.
 fn receiver_ty(db: &RootDatabase, file: FileId, items: &[ItemId], receiver: ExprId) -> Option<Ty> {
     items.iter().find_map(|&item| {
-        hir_ty::body_types(db, file, item).and_then(|body| body.exprs.get(&receiver).cloned())
+        hir::body_types(db, file, item).and_then(|body| body.exprs.get(&receiver).cloned())
     })
 }
 
@@ -1756,7 +1751,7 @@ fn enclosing_class_receiver(
     offset: TextSize,
 ) -> Option<Ty> {
     let enclosing = enclosing_class(db, file, tree, offset)?;
-    Some(hir_ty::ClassKey::of(tree, file, enclosing).as_ty(db, Vec::new()))
+    Some(hir::ClassKey::of(tree, file, enclosing).as_ty(db, Vec::new()))
 }
 
 /// The innermost class-like declaration whose range contains `offset` — the
@@ -1776,10 +1771,10 @@ fn enclosing_class(
 /// The navigation resolutions of the class `key` denotes: the declaration of a
 /// source class — a *local* one ([JLS §14.3]) included — or the library source
 /// the classpath class lives in.
-fn key_resolution(db: &RootDatabase, file: FileId, key: &hir_ty::ClassKey) -> Vec<Resolution> {
+fn key_resolution(db: &RootDatabase, file: FileId, key: &hir::ClassKey) -> Vec<Resolution> {
     match key {
-        hir_ty::ClassKey::Named(fqn) => class_resolution(db, file, fqn),
-        hir_ty::ClassKey::Local(class) => {
+        hir::ClassKey::Named(fqn) => class_resolution(db, file, fqn),
+        hir::ClassKey::Local(class) => {
             let tree = jvm_index::hir_def::java::plugin::tree(db, class.file);
             let Some(name) = tree.data(class.item).name() else {
                 return Vec::new();
@@ -1824,7 +1819,7 @@ fn member_in_hierarchy(
     use_kind: Use,
     params: Params<'_>,
 ) -> Vec<Resolution> {
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     let mut queue = VecDeque::from([receiver]);
     let mut seen: FxHashSet<Name> = FxHashSet::default();
     let mut pending: Vec<LibraryFileRef> = Vec::new();
@@ -1841,7 +1836,7 @@ fn member_in_hierarchy(
             MemberLookup::PendingSource(source) => pending.push(source),
             MemberLookup::Absent => {}
         }
-        queue.extend(hir_ty::supertypes(db, &scope, &ty));
+        queue.extend(hir::supertypes(db, &scope, &ty));
     }
     pending.into_iter().map(Resolution::Pending).collect()
 }
@@ -2048,23 +2043,23 @@ fn member_of_named_owner(
     use_kind: Use,
     params: Params<'_>,
 ) -> MemberLookup {
-    let fqn = match hir_ty::resolve_type_name_at(db, file, item, owner_name) {
-        hir_ty::NameResolution::Resolved(fqn) | hir_ty::NameResolution::NotAccessible(fqn) => fqn,
+    let fqn = match hir::resolve_type_name_at(db, file, item, owner_name) {
+        hir::NameResolution::Resolved(fqn) | hir::NameResolution::NotAccessible(fqn) => fqn,
         // §6.7: a local declaration has no canonical name to resolve a member
         // through; its members are read from its own declaration.
-        hir_ty::NameResolution::ResolvedLocal(class) => {
+        hir::NameResolution::ResolvedLocal(class) => {
             return members_of_source_owner(db, class, name, use_kind, params);
         }
-        hir_ty::NameResolution::TypeVar
-        | hir_ty::NameResolution::Ambiguous(_)
-        | hir_ty::NameResolution::Unresolved => return MemberLookup::Absent,
+        hir::NameResolution::TypeVar
+        | hir::NameResolution::Ambiguous(_)
+        | hir::NameResolution::Unresolved => return MemberLookup::Absent,
     };
     members_of_owner(db, file, fqn.as_str(), name, use_kind, params)
 }
 
 /// The class `owner_fqn` denotes in `file`'s scope, and where its source is.
 fn owner_lookup(db: &RootDatabase, file: FileId, owner_fqn: &str) -> OwnerLookup {
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     let Some(resolved) = jvm_index::fqn_resolve(db, &scope, owner_fqn) else {
         return OwnerLookup::Unresolved;
     };
@@ -2101,7 +2096,7 @@ enum Params<'a> {
     /// name that denotes exactly one member is still answerable; an overloaded
     /// one is not guessed at.
     Unknown,
-    /// The declaration the resolution selected ([`hir_ty::MethodData`]): its
+    /// The declaration the resolution selected ([`hir::MethodData`]): its
     /// classfile descriptor for a library member
     /// ([JVMS §4.6](https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.6)),
     /// its parameter types for a source one. The descriptor is the member's
@@ -2194,7 +2189,7 @@ fn projected_member_item(
     params: Params<'_>,
 ) -> Option<ItemId> {
     let class = jvm_index::Resolved::Source(jvm_index::SourceClass { file, item: owner });
-    let source = hir_ty::lang::member_source(db, &class)?;
+    let source = hir::lang::member_source(db, &class)?;
     if matches!(use_kind, Use::Field) {
         return source.fields(db, &class, &[], name).first()?.decl_item;
     }
@@ -2221,7 +2216,7 @@ fn projected_member_item(
 /// the declaring type's arguments substituted where the declaration writes its
 /// own type parameters.
 fn declares_params(db: &RootDatabase, file: FileId, item: ItemId, expected: &[Ty]) -> bool {
-    let mut declared = hir_ty::method_params(db, file, item);
+    let mut declared = hir::method_params(db, file, item);
     if declared.len() != expected.len() {
         return false;
     }
@@ -2268,20 +2263,20 @@ fn type_resolution(
     // §7.4.3: a name that exists on the classpath but is not visible from the
     // file's module still denotes that class — navigation is not a compile
     // check.
-    let fqn = match hir_ty::resolve_type_name_at(db, file, item, name) {
-        hir_ty::NameResolution::Resolved(fqn) | hir_ty::NameResolution::NotAccessible(fqn) => fqn,
+    let fqn = match hir::resolve_type_name_at(db, file, item, name) {
+        hir::NameResolution::Resolved(fqn) | hir::NameResolution::NotAccessible(fqn) => fqn,
         // §14.3/[§6.7]: a local declaration is denoted by its declaration, not
         // by a name the workspace could resolve anywhere else.
-        hir_ty::NameResolution::ResolvedLocal(class) => {
+        hir::NameResolution::ResolvedLocal(class) => {
             return vec![Resolution::Decl {
                 file: class.file,
                 item: class.item,
                 name: name.simple_name().to_owned(),
             }];
         }
-        hir_ty::NameResolution::TypeVar
-        | hir_ty::NameResolution::Ambiguous(_)
-        | hir_ty::NameResolution::Unresolved => return Vec::new(),
+        hir::NameResolution::TypeVar
+        | hir::NameResolution::Ambiguous(_)
+        | hir::NameResolution::Unresolved => return Vec::new(),
     };
     class_resolution(db, file, &fqn)
 }
@@ -2342,7 +2337,7 @@ fn encloses(tree: &ItemTree, ancestor: ItemId, item: ItemId) -> bool {
 
 /// The resolution of the canonical class name `fqn` in `file`'s scope.
 fn class_resolution(db: &RootDatabase, file: FileId, fqn: &Name) -> Vec<Resolution> {
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     let Some(resolved) = jvm_index::fqn_resolve(db, &scope, fqn.as_str()) else {
         return Vec::new();
     };
@@ -2482,7 +2477,7 @@ fn library_member_signature(
                 .fields
                 .iter()
                 .find(|field| interner.resolve(&field.name) == name)?;
-            let field_ty = hir_ty::ty_from_library(db, &field.field_type);
+            let field_ty = hir::ty_from_library(db, &field.field_type);
             let ty = field_ty.display_simple(db);
             format!("{ty} {name}")
         }
@@ -2502,7 +2497,7 @@ fn library_member_signature(
             let head = match use_kind {
                 Use::Constructor => String::new(),
                 _ => {
-                    let return_ty = hir_ty::ty_from_library(db, &method.return_type);
+                    let return_ty = hir::ty_from_library(db, &method.return_type);
                     format!("{} ", return_ty.display_simple(db))
                 }
             };
@@ -2511,7 +2506,7 @@ fn library_member_signature(
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    let param_ty = hir_ty::ty_from_library(db, &param.param_type);
+                    let param_ty = hir::ty_from_library(db, &param.param_type);
                     let ty = param_ty.display_simple(db);
                     let name = param
                         .name
@@ -2593,7 +2588,7 @@ fn library_member_hover(
 pub(crate) fn declared_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     constructor: bool,
 ) -> Option<Vec<String>> {
     match declared_parameter_names_of(db, file, method, constructor) {
@@ -2610,7 +2605,7 @@ pub(crate) fn declared_parameter_names(
 pub(crate) fn pending_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     constructor: bool,
 ) -> Option<LibraryFileRef> {
     match declared_parameter_names_of(db, file, method, constructor) {
@@ -2636,7 +2631,7 @@ enum DeclaredParameterNames {
 fn declared_parameter_names_of(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     constructor: bool,
 ) -> DeclaredParameterNames {
     let reference = if constructor {
@@ -2729,7 +2724,7 @@ fn declared_parameter_names_of(
 /// `None` for a name that resolves to no library class, which is the only case
 /// a classpath member's names could still be read from.
 fn library_of(db: &RootDatabase, file: FileId, owner_fqn: &str) -> Option<jvm_index::LibraryId> {
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     match jvm_index::fqn_resolve(db, &scope, owner_fqn)? {
         jvm_index::Resolved::Library(class) => Some(class.library),
         jvm_index::Resolved::Source(_) | jvm_index::Resolved::Facade { .. } => None,
@@ -2903,7 +2898,7 @@ pub(crate) fn hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
     // so it has no documentation.
     for expr_id in exprs_at(&bodies, offset) {
         for item in body_items_at(db, file, &tree, offset) {
-            if let Some(body) = hir_ty::body_types(db, file, item)
+            if let Some(body) = hir::body_types(db, file, item)
                 && let Some(ty) = body.exprs.get(&expr_id)
             {
                 return Some(HoverInfo {
@@ -2921,7 +2916,7 @@ pub(crate) fn hover(db: &RootDatabase, file: FileId, offset: TextSize) -> Option
             .is_some_and(|range| range.contains_inclusive(offset))
         {
             for item in body_items_at(db, file, &tree, offset) {
-                if let Some(body) = hir_ty::body_types(db, file, item)
+                if let Some(body) = hir::body_types(db, file, item)
                     && let Some(ty) = body.locals.get(&LocalId(id))
                 {
                     return Some(HoverInfo {
@@ -3006,7 +3001,7 @@ fn all_items(db: &RootDatabase, file: FileId, tree: &ItemTree) -> Vec<(TextRange
 }
 
 /// The body-carrying item ids whose range contains `offset`, innermost first —
-/// the owners whose [`hir_ty::BodyTypes`] may type the construct at the offset.
+/// the owners whose [`hir::BodyTypes`] may type the construct at the offset.
 fn body_items_at(
     db: &RootDatabase,
     file: FileId,

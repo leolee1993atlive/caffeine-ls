@@ -8,7 +8,7 @@
 //! answers for reports nothing — a file with no source root yet, or a non-JVM
 //! file — which is what the collectors answer for such a file anyway.
 
-use hir_ty::TyDatabase;
+use hir::TyDatabase;
 use ide_db::base_db::LanguageKind;
 use vfs::FileId;
 

@@ -1,7 +1,7 @@
 //! The IDE's diagnostics: what every check reports, and how it is presented.
 //!
 //! The type layer (`hir-ty`) *detects*: it records structured diagnostics —
-//! [`hir_ty::TypeError`] for a body, [`hir_ty::DeclDiagnostic`] for a
+//! [`hir::TypeError`] for a body, [`hir::DeclDiagnostic`] for a
 //! declaration — and nothing else. This crate owns the *policy and
 //! presentation* on top of them:
 //!
@@ -136,11 +136,11 @@ pub(crate) fn collect_syntax(sink: &mut DiagnosticSink, db: &dyn SourceDatabase,
 /// The type-layer diagnostics of a file ([JLS §6.5], [§14.18], [§15.11],
 /// [§15.12]): the `TypeError`s reported while inferring the body of every
 /// method, constructor, initializer, field initializer and enum constant
-/// argument in the file (see [`hir_ty::body_types`]). Each diagnostic's range
+/// argument in the file (see [`hir::body_types`]). Each diagnostic's range
 /// is the source range of the offending construct, computed from its body-IR
 /// arena id, and every one is reported unless an enclosing
 /// `@SuppressWarnings` names its key ([JLS §9.6.4.5]).
-pub fn type_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Vec<Diagnostic> {
+pub fn type_diagnostics(db: &dyn hir::TyDatabase, file_id: FileId) -> Vec<Diagnostic> {
     let mut sink = DiagnosticSink::new();
     collect_type_diagnostics(&mut sink, db, file_id);
     sink.into_file(file_id)
@@ -148,7 +148,7 @@ pub fn type_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Vec<Dia
 
 pub(crate) fn collect_type_diagnostics(
     sink: &mut DiagnosticSink,
-    db: &dyn hir_ty::TyDatabase,
+    db: &dyn hir::TyDatabase,
     file_id: FileId,
 ) {
     if let Some(language) = lang::for_file(db, file_id) {
@@ -157,12 +157,12 @@ pub(crate) fn collect_type_diagnostics(
 }
 
 pub(crate) fn item_diagnostics_impl(
-    db: &dyn hir_ty::TyDatabase,
+    db: &dyn hir::TyDatabase,
     file_id: FileId,
     item_id: ItemId,
 ) -> Vec<Diagnostic> {
     let bodies = jvm_index::file_body_tree(db, file_id);
-    let Some(body_types) = hir_ty::body_types(db, file_id, item_id) else {
+    let Some(body_types) = hir::body_types(db, file_id, item_id) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -202,14 +202,14 @@ pub(crate) fn item_diagnostics_impl(
 
 /// The declaration-level diagnostics of a file ([JLS §6.5.5.1], [§7.5], [§8],
 /// [§9]): the unknown-type/ambiguity/import reports and the override and
-/// default-method checks of [`hir_ty::class_diagnostics`], plus the
-/// module-directive checks of [`hir_ty::module_diagnostics`]. Each reference
+/// default-method checks of [`hir::class_diagnostics`], plus the
+/// module-directive checks of [`hir::module_diagnostics`]. Each reference
 /// carries its own source range; the hierarchy checks are keyed to the
 /// offending method's name.
 ///
-/// [`hir_ty::level_diagnostics`] adds the source-level checks: every construct
+/// [`hir::level_diagnostics`] adds the source-level checks: every construct
 /// newer than the level the file's source set is compiled at.
-pub fn declaration_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Vec<Diagnostic> {
+pub fn declaration_diagnostics(db: &dyn hir::TyDatabase, file_id: FileId) -> Vec<Diagnostic> {
     let mut sink = DiagnosticSink::new();
     collect_declaration_diagnostics(&mut sink, db, file_id);
     sink.into_file(file_id)
@@ -217,7 +217,7 @@ pub fn declaration_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> 
 
 pub(crate) fn collect_declaration_diagnostics(
     sink: &mut DiagnosticSink,
-    db: &dyn hir_ty::TyDatabase,
+    db: &dyn hir::TyDatabase,
     file_id: FileId,
 ) {
     if let Some(language) = lang::for_file(db, file_id) {
@@ -235,7 +235,7 @@ pub(crate) fn collect_declaration_diagnostics(
 /// unaffected file's report here is a hash compare, not a re-inference.
 #[salsa::tracked(returns(clone))]
 pub(crate) fn file_diagnostics_query(
-    db: &dyn hir_ty::TyDatabase,
+    db: &dyn hir::TyDatabase,
     file: FileText,
 ) -> Arc<[Diagnostic]> {
     let file_id = *file.file_id(db);
@@ -248,7 +248,7 @@ pub(crate) fn file_diagnostics_query(
 /// The merged type + declaration diagnostics of a file: every diagnostic the
 /// checks produced except the warnings an enclosing `@SuppressWarnings` names
 /// ([JLS §9.6.4.5]).
-pub fn file_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Arc<[Diagnostic]> {
+pub fn file_diagnostics(db: &dyn hir::TyDatabase, file_id: FileId) -> Arc<[Diagnostic]> {
     file_diagnostics_query(db, db.file_text(file_id))
 }
 
@@ -265,7 +265,7 @@ pub fn file_diagnostics(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Arc<[Di
 /// from the still-memoized sub-queries).
 #[salsa::tracked(returns(clone), lru = 4096)]
 #[tracing::instrument(skip_all, level = "debug")]
-pub(crate) fn file_report_query(db: &dyn hir_ty::TyDatabase, file: FileText) -> Arc<[Diagnostic]> {
+pub(crate) fn file_report_query(db: &dyn hir::TyDatabase, file: FileText) -> Arc<[Diagnostic]> {
     let file_id = *file.file_id(db);
     // A library source file is read-only third-party code: neither its syntax
     // nor its type diagnostics are the user's to fix. The tracked
@@ -286,7 +286,7 @@ pub(crate) fn file_report_query(db: &dyn hir_ty::TyDatabase, file: FileText) -> 
 /// and declaration diagnostics ([JLS §9.6.4.5] governing the suppressed
 /// warnings only). This is the unit the LSP diagnostics store tracks and diffs
 /// per file. Memoized per [`FileText`] by [`file_report_query`].
-pub fn file_report(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Arc<[Diagnostic]> {
+pub fn file_report(db: &dyn hir::TyDatabase, file_id: FileId) -> Arc<[Diagnostic]> {
     file_report_query(db, db.file_text(file_id))
 }
 

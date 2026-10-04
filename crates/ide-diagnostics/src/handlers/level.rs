@@ -6,7 +6,7 @@
 //! The level checks in the type layer detect the violations; the wording of
 //! the report lives here, next to the enum the check records.
 
-use hir_ty::java::level_check::JavaFeature;
+use hir::java::level_check::JavaFeature;
 
 /// The construct's name in javac's message, taken from the
 /// `compiler.misc.feature.*` fragment the row points at. `LocalVariableTypeInference`

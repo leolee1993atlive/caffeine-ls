@@ -19,10 +19,10 @@
 //! `<T>g(List<T>)`). The declaration's own parameter types are not part of a
 //! resolved member, and naming the member is what the message is for.
 
-use hir_ty::TyDatabase;
-use hir_ty::java::deprecation::DeprecatedApi;
-use hir_ty::java::ty::Ty;
-use hir_ty::jvm::deprecation::Deprecation;
+use hir::TyDatabase;
+use hir::java::deprecation::DeprecatedApi;
+use hir::java::ty::Ty;
+use hir::jvm::deprecation::Deprecation;
 
 /// Javac's deprecation sentence for `api` ([JLS §9.6.4.6]).
 pub(crate) fn message(

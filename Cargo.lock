@@ -264,7 +264,6 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "jimage-rs",
- "jvm_index",
  "lsp-server",
  "lsp-test",
  "memchr",
@@ -982,6 +981,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
+name = "hir"
+version = "0.0.0"
+dependencies = [
+ "hir-ty",
+ "jvm_index",
+]
+
+[[package]]
 name = "hir-def"
 version = "0.0.0"
 dependencies = [
@@ -1175,8 +1182,8 @@ dependencies = [
  "bitflags",
  "classfile",
  "dashmap",
+ "hir",
  "hir-expand",
- "hir-ty",
  "ide-db",
  "ide-diagnostics",
  "insta",
@@ -1217,8 +1224,8 @@ dependencies = [
 name = "ide-diagnostics"
 version = "0.0.0"
 dependencies = [
+ "hir",
  "hir-expand",
- "hir-ty",
  "ide-db",
  "jvm_index",
  "ra_ap_vfs",

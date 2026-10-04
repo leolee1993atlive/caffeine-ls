@@ -72,7 +72,7 @@ pub trait LanguageIde: Sync {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<Vec<String>> {
         let _ = (db, file, method, constructor);
@@ -84,7 +84,7 @@ pub trait LanguageIde: Sync {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<nav::LibraryFileRef> {
         let _ = (db, file, method, constructor);

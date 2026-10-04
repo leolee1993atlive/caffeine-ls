@@ -55,7 +55,7 @@ use rustc_hash::FxHashSet;
 use triomphe::Arc;
 use vfs::FileId;
 
-use hir_ty::{DeclDiagnostic, TyDatabase, TypeError};
+use hir::{DeclDiagnostic, TyDatabase, TypeError};
 use ide_db::Severity;
 use ide_db::base_db::{FileText, salsa};
 
@@ -125,10 +125,10 @@ pub(crate) struct SuppressionScope {
 
 /// The lint key of a deprecation: `removal` for a terminally deprecated
 /// element, `deprecation` otherwise ([JLS §9.6.4.6]).
-fn lint_of_deprecation(deprecation: hir_ty::jvm::deprecation::Deprecation) -> LintKey {
+fn lint_of_deprecation(deprecation: hir::jvm::deprecation::Deprecation) -> LintKey {
     match deprecation {
-        hir_ty::jvm::deprecation::Deprecation::Ordinary => LintKey::Deprecation,
-        hir_ty::jvm::deprecation::Deprecation::Terminal => LintKey::Removal,
+        hir::jvm::deprecation::Deprecation::Ordinary => LintKey::Deprecation,
+        hir::jvm::deprecation::Deprecation::Terminal => LintKey::Removal,
     }
 }
 

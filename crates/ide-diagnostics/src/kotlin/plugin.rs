@@ -6,7 +6,7 @@
 //! scopes are a Java-source question, so nothing is suppressed in a Kotlin file
 //! either.
 
-use hir_ty::TyDatabase;
+use hir::TyDatabase;
 use ide_db::base_db::LanguageKind;
 use syntax::DiagnosticCode;
 use vfs::FileId;
@@ -31,8 +31,8 @@ impl LanguageDiagnostics for Kotlin {
         for (id, _) in tree.items.iter() {
             // A declaration's *initializer* expressions are inferred too — a
             // property writes one in place of a body — so both are walked
-            // ([`hir_ty::kotlin_declaration_types`]).
-            let types = hir_ty::kotlin_declaration_types(db, file_id, hir_expand::ids::ItemId(id));
+            // ([`hir::kotlin_declaration_types`]).
+            let types = hir::kotlin_declaration_types(db, file_id, hir_expand::ids::ItemId(id));
             for diagnostic in &types.diagnostics {
                 let Some(range) = diagnostic.range() else {
                     continue;
@@ -52,7 +52,7 @@ impl LanguageDiagnostics for Kotlin {
     }
 
     /// The declaration-level findings of the file
-    /// ([`hir_ty::kotlin_class_diagnostics`]): the override rules, the abstract
+    /// ([`hir::kotlin_class_diagnostics`]): the override rules, the abstract
     /// obligations, the supertype initialization, duplicate signatures, the
     /// applicability of a modifier and `lateinit`. Every one is an error in
     /// kotlinc, so none is suppressible and no `@Suppress` scope is consulted.
@@ -62,7 +62,7 @@ impl LanguageDiagnostics for Kotlin {
         db: &dyn TyDatabase,
         file_id: FileId,
     ) {
-        for diagnostic in hir_ty::kotlin_class_diagnostics(db, file_id) {
+        for diagnostic in hir::kotlin_class_diagnostics(db, file_id) {
             let Some(range) = diagnostic.range() else {
                 continue;
             };

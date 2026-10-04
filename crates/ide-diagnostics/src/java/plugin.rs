@@ -3,7 +3,7 @@
 //! body/type diagnostics are the Java type layer's (the item walk
 //! [`crate::item_diagnostics_impl`]).
 
-use hir_ty::TyDatabase;
+use hir::TyDatabase;
 use ide_db::base_db::LanguageKind;
 use vfs::FileId;
 
@@ -41,7 +41,7 @@ impl LanguageDiagnostics for Java {
         db: &dyn TyDatabase,
         file_id: FileId,
     ) {
-        for diagnostic in hir_ty::class_diagnostics(db, file_id) {
+        for diagnostic in hir::class_diagnostics(db, file_id) {
             // §9.6.4.5: a warning named by an enclosing `@SuppressWarnings` is not
             // reported at all.
             if !lint::keeps_decl_diagnostic(db, file_id, &diagnostic) {
@@ -92,7 +92,7 @@ impl LanguageDiagnostics for Java {
         // `exports`/`opens` of an empty package, a `provides` implementation not
         // a subtype of its service) of a `module-info.java`. Every module
         // diagnostic carries its own range.
-        for diagnostic in hir_ty::module_diagnostics(db, file_id) {
+        for diagnostic in hir::module_diagnostics(db, file_id) {
             if !lint::keeps_decl_diagnostic(db, file_id, &diagnostic) {
                 continue;
             }
@@ -112,7 +112,7 @@ impl LanguageDiagnostics for Java {
         }
         // A construct newer than the file's project source level (e.g. a record in
         // a `-source 11` module). Always an error: javac rejects it too.
-        for diagnostic in hir_ty::level_diagnostics(db, file_id) {
+        for diagnostic in hir::level_diagnostics(db, file_id) {
             if !lint::keeps_decl_diagnostic(db, file_id, &diagnostic) {
                 continue;
             }

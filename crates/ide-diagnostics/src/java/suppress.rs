@@ -1,8 +1,8 @@
 //! Java `@SuppressWarnings` scopes ([JLS §9.6.4.5]).
 
+use hir::TyDatabase;
+use hir::java::resolve::NameResolution;
 use hir_expand::name::Name;
-use hir_ty::TyDatabase;
-use hir_ty::java::resolve::NameResolution;
 use rowan::{SyntaxNode, TextRange};
 use rustc_hash::FxHashSet;
 use syntax::SourceFile;
@@ -17,7 +17,7 @@ use crate::lint::{LintKey, SuppressionScope};
 /// `range` and carries its key; [`is_suppressed`] performs that check.
 pub(crate) fn suppression_scopes(db: &dyn TyDatabase, file_id: FileId) -> Vec<SuppressionScope> {
     let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
-    let Some((_map, source)) = hir_ty::range_ctx::range_ctx(db, file_id, tree.language) else {
+    let Some((_map, source)) = hir::range_ctx::range_ctx(db, file_id, tree.language) else {
         return Vec::new();
     };
     let SourceFile::Java(file) = &source else {
@@ -139,7 +139,7 @@ fn annotation_keys(
     // what it cannot read names nothing, and must not be guessed from the
     // source, which would let the second of those pass for the first.
     let Some(values) =
-        hir_ty::java::annotation_value::suppress_warnings_values(db, file_id, annotation)
+        hir::java::annotation_value::suppress_warnings_values(db, file_id, annotation)
     else {
         return;
     };
@@ -167,7 +167,7 @@ fn is_suppress_warnings(
         name_node.text().to_string().trim(),
     ));
     matches!(
-        hir_ty::java::resolve::resolve_written_name(db, file_id, name_node, &name),
+        hir::java::resolve::resolve_written_name(db, file_id, name_node, &name),
         NameResolution::Resolved(resolved) if resolved.as_str() == SUPPRESS_WARNINGS
     )
 }

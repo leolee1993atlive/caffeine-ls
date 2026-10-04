@@ -155,14 +155,14 @@ pub(crate) fn class_declaration(
 /// [§8.8.7.1]), which selects a constructor rather than a method of that name.
 ///
 /// `None` for a Kotlin file: the parameter names of a call come from the
-/// resolved callable ([`hir_ty::MethodData`]), and Kotlin has no resolved-call
+/// resolved callable ([`hir::MethodData`]), and Kotlin has no resolved-call
 /// table yet — the Kotlin type layer is where a callable's parameters become
 /// available ([`kotlin`]) — and for a declaration that is no loaded source one
 /// ([`java::declared_parameter_names`]).
 pub(crate) fn declared_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     constructor: bool,
 ) -> Option<Vec<String>> {
     crate::lang::for_file(db, file)
@@ -181,7 +181,7 @@ pub(crate) fn declared_parameter_names(
 pub(crate) fn pending_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
     constructor: bool,
 ) -> Option<LibraryFileRef> {
     crate::lang::for_file(db, file)
@@ -194,7 +194,7 @@ pub(crate) fn pending_parameter_names(
 pub(crate) fn classpath_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
 ) -> Option<Vec<String>> {
     let (owner, descriptor, library) = classpath_member(db, file, method)?;
     jvm_index::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
@@ -207,7 +207,7 @@ pub(crate) fn classpath_parameter_names(
 pub(crate) fn classpath_pending_parameter_names(
     db: &RootDatabase,
     file: FileId,
-    method: &hir_ty::MethodData,
+    method: &hir::MethodData,
 ) -> Option<LibraryFileRef> {
     let (owner, descriptor, library) = classpath_member(db, file, method)?;
     if jvm_index::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
@@ -233,11 +233,11 @@ pub(crate) fn classpath_pending_parameter_names(
 fn classpath_member<'a>(
     db: &RootDatabase,
     file: FileId,
-    method: &'a hir_ty::MethodData,
+    method: &'a hir::MethodData,
 ) -> Option<(&'a hir_expand::name::Name, &'a str, jvm_index::LibraryId)> {
     let owner = method.owner.as_fqn()?;
     let descriptor = method.descriptor.as_deref()?;
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     let jvm_index::Resolved::Library(class) = jvm_index::fqn_resolve(db, &scope, owner.as_str())?
     else {
         return None;

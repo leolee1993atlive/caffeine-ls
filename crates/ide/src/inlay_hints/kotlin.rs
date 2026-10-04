@@ -18,11 +18,11 @@
 //! argument that is written *named* already says its parameter's name — and
 //! both are decided here.
 //!
-//! The rendered type goes through [`hir_ty::display_kotlin`], so the label is
+//! The rendered type goes through [`hir::display_kotlin`], so the label is
 //! the Kotlin spelling (`String?`, `List<out Number>`), never Java's.
 
+use hir::KotlinResolvedMember;
 use hir_expand::body::{BodyTree, ExprData, ExprId, UnaryOp};
-use hir_ty::KotlinResolvedMember;
 use rowan::{TextRange, TextSize};
 use vfs::FileId;
 
@@ -162,7 +162,7 @@ fn collect(
         if tree.data(item).body_id().is_none() {
             continue;
         }
-        let types = hir_ty::kotlin_declaration_types(db, file, item);
+        let types = hir::kotlin_declaration_types(db, file, item);
         type_hints(db, &bodies, &types, &search, config, out);
         parameter_name_hints(db, file, &bodies, &types, &search, config, out, pending);
     }
@@ -175,7 +175,7 @@ fn collect(
 fn type_hints(
     db: &RootDatabase,
     bodies: &BodyTree,
-    types: &hir_ty::kotlin::infer::KotlinBodyTypes,
+    types: &hir::kotlin::infer::KotlinBodyTypes,
     search: &Search,
     config: &InlayHintsConfig,
     out: &mut Vec<InlayHintDetail>,
@@ -186,7 +186,7 @@ fn type_hints(
     for (local, _) in bodies.locals.iter() {
         let local = hir_expand::body::LocalId(local);
         // Only a local this item's body declares.
-        if types.local_ty(db, local) == hir_ty::Ty::error(db) {
+        if types.local_ty(db, local) == hir::Ty::error(db) {
             continue;
         }
         let Some(declared_range) = bodies.local_range(local) else {
@@ -213,14 +213,14 @@ fn type_hints(
             hint: InlayHint {
                 offset: name_range.end(),
                 label: vec![InlayHintLabelPart {
-                    value: format!(": {}", hir_ty::display_kotlin(db, ty)),
+                    value: format!(": {}", hir::display_kotlin(db, ty)),
                     class: None,
                 }],
                 kind: InlayHintKind::Type,
                 padding_left: false,
                 padding_right: false,
             },
-            tooltip: hir_ty::display_kotlin(db, ty).to_string(),
+            tooltip: hir::display_kotlin(db, ty).to_string(),
             edits: Vec::new(),
         });
     }
@@ -378,7 +378,7 @@ fn parameter_name_hints(
     db: &RootDatabase,
     file: FileId,
     bodies: &BodyTree,
-    types: &hir_ty::kotlin::infer::KotlinBodyTypes,
+    types: &hir::kotlin::infer::KotlinBodyTypes,
     search: &Search,
     config: &InlayHintsConfig,
     out: &mut Vec<InlayHintDetail>,
@@ -498,7 +498,7 @@ fn parameter_name_hints(
 /// for, so its type already names it.
 fn is_unclear_argument(
     bodies: &BodyTree,
-    types: &hir_ty::kotlin::infer::KotlinBodyTypes,
+    types: &hir::kotlin::infer::KotlinBodyTypes,
     arg: ExprId,
 ) -> bool {
     match bodies.expr(arg) {

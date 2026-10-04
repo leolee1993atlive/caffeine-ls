@@ -81,7 +81,7 @@ impl LanguageIde for Java {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<Vec<String>> {
         nav::classpath_parameter_names(db, file, method)
@@ -92,7 +92,7 @@ impl LanguageIde for Java {
         &self,
         db: &RootDatabase,
         file: FileId,
-        method: &hir_ty::MethodData,
+        method: &hir::MethodData,
         constructor: bool,
     ) -> Option<nav::LibraryFileRef> {
         nav::classpath_pending_parameter_names(db, file, method)
@@ -161,9 +161,7 @@ impl LanguageIde for Java {
     }
 
     fn item_ty(&self, db: &RootDatabase, file: FileId, item: symbols::ItemId) -> String {
-        hir_ty::item_ty(db, file, item)
-            .display_simple(db)
-            .to_string()
+        hir::item_ty(db, file, item).display_simple(db).to_string()
     }
 
     fn method_params(
@@ -173,7 +171,7 @@ impl LanguageIde for Java {
         item: symbols::ItemId,
     ) -> triomphe::Arc<[String]> {
         triomphe::Arc::from(
-            hir_ty::method_params(db, file, item)
+            hir::method_params(db, file, item)
                 .into_iter()
                 .map(|ty| ty.display_simple(db).to_string())
                 .collect::<Vec<_>>(),

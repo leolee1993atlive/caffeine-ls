@@ -102,7 +102,7 @@ fn record_members(
     let tree = jvm_index::hir_def::java::plugin::tree(db, file_id);
     let ctx = crate::symbols::range_ctx(db, file_id, tree.language);
     let component_tys: Arc<Vec<String>> = Arc::new(
-        hir_ty::record_component_types(db, file_id, symbol.item.unwrap())
+        hir::record_component_types(db, file_id, symbol.item.unwrap())
             .into_iter()
             .map(|ty| ty.display_simple(db).to_string())
             .collect(),

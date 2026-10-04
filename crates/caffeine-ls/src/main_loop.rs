@@ -8,10 +8,9 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crossbeam_channel::Receiver;
 use ide::{
     Change, Classpath, ClasspathEntry as GraphClasspathEntry, LibraryId, LibraryInfo, LibraryKind,
-    LibrarySources, ProjectGraphData, SourceSetId,
+    LibrarySources, Name, ProjectGraphData, SourceSetId,
 };
 use ide_db::base_db::{SourceRoot, SourceRootId};
-use jvm_index::hir_expand::name::Name;
 use lsp_server::{Connection, ErrorCode, Notification, Request};
 use lsp_types::*;
 use project_model::{ClasspathEntry, SyncError, SyncPhase, SyncProgress};

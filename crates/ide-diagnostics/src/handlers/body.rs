@@ -5,11 +5,11 @@
 //! [`TypeError`]s; the wording, the code mapping and the rendering of a type
 //! at display time live here, one place per diagnostic.
 
+use hir::java::diagnostics::{IllegalAccessKind, NonStaticThisKind};
+use hir::java::ty::Ty;
+use hir::jvm::deprecation::Deprecation;
+use hir::{TyDatabase, TypeError};
 use hir_expand::body::BodyTree;
-use hir_ty::java::diagnostics::{IllegalAccessKind, NonStaticThisKind};
-use hir_ty::java::ty::Ty;
-use hir_ty::jvm::deprecation::Deprecation;
-use hir_ty::{TyDatabase, TypeError};
 use rowan::TextRange;
 use syntax::{DiagnosticCode, JavaDiagnosticCode};
 
@@ -594,17 +594,17 @@ fn arities_align(db: &dyn TyDatabase, required: &[Ty], found: usize, varargs: bo
 /// used to name the variable whose bound set failed to resolve ([§18.4]).
 fn declared_type_var_name(db: &dyn TyDatabase, ty: Ty) -> Option<String> {
     match ty.kind(db) {
-        hir_ty::java::ty::TyKind::TypeVar { scope, .. } if !scope.is_capture() => {
+        hir::java::ty::TyKind::TypeVar { scope, .. } if !scope.is_capture() => {
             Some(scope.name().as_str().to_owned())
         }
-        hir_ty::java::ty::TyKind::Reference { args, .. } => {
+        hir::java::ty::TyKind::Reference { args, .. } => {
             args.iter().find_map(|arg| declared_type_var_name(db, *arg))
         }
-        hir_ty::java::ty::TyKind::Array(inner) => declared_type_var_name(db, **inner),
-        hir_ty::java::ty::TyKind::Wildcard(bound) => bound
+        hir::java::ty::TyKind::Array(inner) => declared_type_var_name(db, **inner),
+        hir::java::ty::TyKind::Wildcard(bound) => bound
             .as_deref()
             .and_then(|b| declared_type_var_name(db, b.ty)),
-        hir_ty::java::ty::TyKind::Intersection(members) => {
+        hir::java::ty::TyKind::Intersection(members) => {
             members.iter().find_map(|m| declared_type_var_name(db, *m))
         }
         _ => None,

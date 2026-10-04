@@ -8,7 +8,7 @@
 //! * the **semantic** layer tags the identifiers: declarations from the item
 //!   tree (with the JLS-defaulted modifiers the lowering computed), references
 //!   from the resolution the type layer recorded while inferring each body
-//!   ([`hir_ty::BodyTypes::resolved`]), type references and annotation names
+//!   ([`hir::BodyTypes::resolved`]), type references and annotation names
 //!   from the item tree and the body IR.
 //!
 //! The passes run in a fixed order and a later one overrides an earlier one at
@@ -24,10 +24,10 @@
 //! The parser's CST is consulted for identifiers only in that last fallback, so
 //! a name's tag never depends on a syntactic guess where the HIR knows better.
 
+use hir::{AnnotationTarget, ResolvedMember};
 use hir_expand::ast_id_map::AstIdMap;
 use hir_expand::body::{BodyTree, ExprData, ExprId, LocalId, PostfixOp, UnaryOp};
 use hir_expand::name::Name;
-use hir_ty::{AnnotationTarget, ResolvedMember};
 use jvm_index::SourceSymbolKind;
 use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree, TypeParam};
 use jvm_index::hir_def::java::modifiers::{JavaModality, JavaModifierFlags, JavaModifiers};
@@ -359,7 +359,7 @@ fn walk_type_refs(
     in_scope: &FxHashSet<Name>,
     out: &mut Highlights,
 ) {
-    for (name, range) in hir_ty::item_type_references(db, file_id, item) {
+    for (name, range) in hir::item_type_references(db, file_id, item) {
         let Some(range) = range else {
             continue;
         };
@@ -399,7 +399,7 @@ fn declared_type_params(tree: &ItemTree, item: ItemId) -> impl Iterator<Item = N
 /// it is written as ([§6.5.5.1]).
 fn annotation_names(db: &RootDatabase, file_id: FileId, tree: &ItemTree, out: &mut Highlights) {
     for (raw, _) in tree.items.iter() {
-        for (_name, range) in hir_ty::item_annotation_references(db, file_id, ItemId(raw)) {
+        for (_name, range) in hir::item_annotation_references(db, file_id, ItemId(raw)) {
             if let Some(range) = range {
                 insert(out, range, HlTag::Decorator, HlMods::empty());
             }
@@ -415,7 +415,7 @@ fn annotation_names(db: &RootDatabase, file_id: FileId, tree: &ItemTree, out: &m
 /// annotation and an array initializer ([§10.6]) out of the expression arena,
 /// and the annotations of a written type have no arena at all — one walk
 /// therefore covers a declaration's annotation, a type-use annotation and an
-/// annotation inside a body alike ([`hir_ty::annotation_target`] reads the same
+/// annotation inside a body alike ([`hir::annotation_target`] reads the same
 /// tree).
 ///
 /// A pair's name is the element of the annotation interface it declares
@@ -504,7 +504,7 @@ fn walk_annotation(
 
 /// The names a value writes ([JLS §9.7.1]): a nested annotation is walked as an
 /// annotation, an array initializer ([§10.6]) holds more values, and every
-/// other value is an expression whose identifiers [`hir_ty::annotation_target`]
+/// other value is an expression whose identifiers [`hir::annotation_target`]
 /// resolves — a class literal's type ([§15.8.2]), an enum constant or a
 /// constant variable ([§6.5.6]).
 fn walk_value(db: &RootDatabase, file_id: FileId, value: &SyntaxNode<Lang>, out: &mut Highlights) {
@@ -528,8 +528,7 @@ fn walk_value(db: &RootDatabase, file_id: FileId, value: &SyntaxNode<Lang>, out:
                     insert(out, range, HlTag::Decorator, HlMods::empty());
                     continue;
                 }
-                let Some(target) =
-                    hir_ty::annotation_target(db, file_id, token.text_range().start())
+                let Some(target) = hir::annotation_target(db, file_id, token.text_range().start())
                 else {
                     continue;
                 };
@@ -608,7 +607,7 @@ fn body_locals(bodies: &BodyTree, params: &FxHashSet<LocalId>, out: &mut Highlig
 }
 
 /// The body references inference resolved: the declaration each one denotes
-/// ([`hir_ty::BodyTypes::resolved`]), with `modification` on the references an
+/// ([`hir::BodyTypes::resolved`]), with `modification` on the references an
 /// assignment writes.
 fn references(
     db: &RootDatabase,
@@ -620,7 +619,7 @@ fn references(
     out: &mut Highlights,
 ) {
     for (raw, _) in tree.items.iter() {
-        let Some(types) = hir_ty::body_types(db, file_id, ItemId(raw)) else {
+        let Some(types) = hir::body_types(db, file_id, ItemId(raw)) else {
             continue;
         };
         for (expr, member) in &types.resolved {

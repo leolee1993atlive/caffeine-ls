@@ -1,5 +1,5 @@
 //! Java inlay hints: the four hint categories of [`super`], computed from the
-//! inference the type layer recorded for a body ([`hir_ty::BodyTypes`]) and the
+//! inference the type layer recorded for a body ([`hir::BodyTypes`]) and the
 //! source ranges of the body IR ([`hir_expand::body::BodyTree`]).
 //!
 //! Every rule is ported from IntelliJ's Java inlay-hint providers:
@@ -16,7 +16,7 @@
 //! Two properties the whole module rests on:
 //!
 //! * The **declaration form** of the method a call selected — the
-//!   [`hir_ty::MethodData`] with the source declaration's parameter *names* —
+//!   [`hir::MethodData`] with the source declaration's parameter *names* —
 //!   is what parameter-name hints read. A library member records no names, so
 //!   no hint is invented for it.
 //! * The **type of a `var` local** is the local's own recorded type
@@ -28,8 +28,8 @@
 //! hint's edit replaces ([`var_keyword_range`]); everything else comes from the
 //! HIR.
 
+use hir::{BodyTypes, BoundKind, MethodData, ResolvedMember, Ty, TyDatabase, TyKind};
 use hir_expand::body::{BodyTree, ExprData, ExprId, LocalId, StmtData, UnaryOp};
-use hir_ty::{BodyTypes, BoundKind, MethodData, ResolvedMember, Ty, TyDatabase, TyKind};
 use rowan::{SyntaxNode, TextRange, TextSize};
 use rustc_hash::FxHashSet;
 use syntax::SourceFile;
@@ -185,7 +185,7 @@ fn collect(
         if !search.matches_item(item_range) {
             continue;
         }
-        let Some(types) = hir_ty::body_types(db, file, item) else {
+        let Some(types) = hir::body_types(db, file, item) else {
             continue;
         };
         var_type_hints(db, source, &bodies, &inits, &types, &search, config, out);
@@ -392,9 +392,7 @@ fn push_type_label(db: &dyn TyDatabase, ty: &Ty, out: &mut Vec<InlayHintLabelPar
                 push_type_label(db, member, out);
             }
         }
-        TyKind::Primitive(primitive) => {
-            out.push(part(hir_ty::java::ty::primitive_name(*primitive)))
-        }
+        TyKind::Primitive(primitive) => out.push(part(hir::java::ty::primitive_name(*primitive))),
         // No type the user could write: [`is_renderable`] drops these before a
         // label is built.
         TyKind::Void | TyKind::Null | TyKind::Error | TyKind::InferenceVar(_) => {}
@@ -457,7 +455,7 @@ fn lambda_parameter_hints(
     if !config.lambda_parameter_types {
         return;
     }
-    let scope = hir_ty::scope_for_file(db, file);
+    let scope = hir::scope_for_file(db, file);
     // The expression arena is in lowering order, so the hints come out in
     // source order without a hash iteration order to sort out afterwards.
     for (id, expr) in bodies.exprs.iter() {
@@ -475,7 +473,7 @@ fn lambda_parameter_hints(
         // §9.8/[§15.27.3]: the parameter types are the single abstract
         // method's, and a lambda whose parameter count already disagrees with
         // the SAM reports a diagnostic instead of guessing.
-        let Some(sam) = hir_ty::single_abstract_method(db, &scope, target) else {
+        let Some(sam) = hir::single_abstract_method(db, &scope, target) else {
             continue;
         };
         if sam.params.len() != params.len() {
@@ -487,7 +485,7 @@ fn lambda_parameter_hints(
             if param.ty.is_some() {
                 continue;
             }
-            let ty = hir_ty::inferred_lambda_parameter_ty(db, formal);
+            let ty = hir::inferred_lambda_parameter_ty(db, formal);
             if !is_renderable(db, &ty) {
                 continue;
             }

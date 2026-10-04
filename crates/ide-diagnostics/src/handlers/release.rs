@@ -5,8 +5,8 @@
 //! The release check in the type layer detects the API and records it as a
 //! [`ReleaseApi`]; the sentence it renders to lives here.
 
-use hir_ty::TyDatabase;
-use hir_ty::java::release_api::ReleaseApi;
+use hir::TyDatabase;
+use hir::java::release_api::ReleaseApi;
 
 pub(crate) fn render(db: &dyn TyDatabase, api: &ReleaseApi, found: u8, added: u8) -> String {
     let api = match api {

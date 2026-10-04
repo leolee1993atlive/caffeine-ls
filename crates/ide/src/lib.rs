@@ -3,6 +3,7 @@ use std::path::Path;
 
 use ide_db::{RootDatabase, base_db::salsa::Cancelled, line_index};
 
+pub use hir::Name;
 pub use ide_db::{
     Severity,
     base_db::LanguageKind,
@@ -104,7 +105,7 @@ impl AnalysisHost {
 /// snapshot, so a long archive parse cannot block the server's next write.
 #[derive(Clone)]
 pub struct LibraryWarmup {
-    state: Arc<jvm_index::HirState>,
+    state: Arc<hir::HirState>,
 }
 
 impl LibraryWarmup {
@@ -212,22 +213,22 @@ impl Analysis {
     }
 
     /// The workspace source files whose declarations the file's type outputs
-    /// resolve against (see [`hir_ty::lang::file_resolved_deps`]).
+    /// resolve against (see [`hir::lang::file_resolved_deps`]).
     pub fn file_resolved_deps(
         &self,
         file_id: FileId,
     ) -> Cancellable<triomphe::Arc<FxHashSet<FileId>>> {
-        self.with_db(|db| hir_ty::lang::file_resolved_deps(db, file_id))
+        self.with_db(|db| hir::lang::file_resolved_deps(db, file_id))
     }
 
     /// The resolution-relevant names of the file, the sound name-level
     /// fallback of the cross-file dependency index (see
-    /// [`hir_ty::lang::file_dependency_refs`]).
+    /// [`hir::lang::file_dependency_refs`]).
     pub fn file_dependency_refs(
         &self,
         file_id: FileId,
     ) -> Cancellable<triomphe::Arc<FxHashSet<hir_expand::name::Name>>> {
-        self.with_db(|db| hir_ty::lang::file_dependency_refs(db, file_id))
+        self.with_db(|db| hir::lang::file_dependency_refs(db, file_id))
     }
 
     /// Gets the file's `LineIndex`: data structure to convert between absolute

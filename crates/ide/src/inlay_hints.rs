@@ -13,7 +13,7 @@
 //! no HIR yet and answers nothing ([`kotlin`]).
 //!
 //! The hints come from the inference the type layer already recorded for a body
-//! ([`hir_ty::BodyTypes`]) plus the ranges of the body IR
+//! ([`hir::BodyTypes`]) plus the ranges of the body IR
 //! ([`hir_expand::body::BodyTree`]), with the parser's CST consulted only for
 //! the `var` keyword an edit replaces. A resolve ([`inlay_hint_resolve`]) adds
 //! what a client asks for only on demand: the tooltip, the edits accepting the

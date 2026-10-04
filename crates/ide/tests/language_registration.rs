@@ -86,7 +86,7 @@ fn every_registry_covers_the_kinds_the_layers_rely_on() {
             "hir-def lowering: {kind:?}"
         );
         assert_eq!(
-            hir_ty::lang::types(kind).is_some(),
+            hir::lang::types(kind).is_some(),
             row.types,
             "hir-ty types: {kind:?}"
         );
@@ -129,7 +129,7 @@ fn the_registries_answer_the_same_kind_they_are_keyed_by() {
         if let Some(lowering) = jvm_index::hir_def::lang::lowering(kind) {
             assert!(lowering.kinds().contains(&kind), "lowering: {kind:?}");
         }
-        if let Some(types) = hir_ty::lang::types(kind) {
+        if let Some(types) = hir::lang::types(kind) {
             assert!(types.kinds().contains(&kind), "types: {kind:?}");
         }
         if let Some(index) = jvm_index::lang::file_index(kind) {
@@ -160,7 +160,7 @@ fn a_owned_extension_round_trips_through_its_kind() {
             "no language parses {path}"
         );
         assert!(
-            hir_ty::lang::types(kind).is_some(),
+            hir::lang::types(kind).is_some(),
             "no type layer reads {path}"
         );
         assert!(

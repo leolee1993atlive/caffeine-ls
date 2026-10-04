@@ -5,10 +5,10 @@
 //! [`DeclDiagnostic`]s; the code each maps to and the sentence each renders to
 //! live here.
 
-use hir_ty::TyDatabase;
-use hir_ty::java::decl_check::{DeclDiagnostic, DuplicateContainer, SafeVarargsRejection};
-use hir_ty::java::ty::Ty;
-use hir_ty::jvm::deprecation::Deprecation;
+use hir::TyDatabase;
+use hir::java::decl_check::{DeclDiagnostic, DuplicateContainer, SafeVarargsRejection};
+use hir::java::ty::Ty;
+use hir::jvm::deprecation::Deprecation;
 use syntax::{DiagnosticCode, JavaDiagnosticCode};
 
 pub fn code(diag: &DeclDiagnostic) -> DiagnosticCode {
