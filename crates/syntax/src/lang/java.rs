@@ -42,6 +42,43 @@ impl super::LanguageSyntax for Java {
             syntax_node: SyntaxNode::new_root(green),
         })
     }
+
+    fn is_indexable(&self, raw_kind: u16) -> bool {
+        use crate::java::SyntaxKind as Kind;
+        use rowan::Language as _;
+        let kind = crate::java::Lang::kind_from_raw(rowan::SyntaxKind(raw_kind));
+        matches!(
+            kind,
+            Kind::PACKAGE_DECL
+                | Kind::IMPORT_DECL
+                | Kind::CLASS_DECL
+                | Kind::INTERFACE_DECL
+                | Kind::ENUM_DECL
+                | Kind::RECORD_DECL
+                | Kind::ANNOTATION_TYPE_DECL
+                | Kind::MODULE_DECL
+                | Kind::METHOD_DECL
+                | Kind::CONSTRUCTOR_DECL
+                | Kind::COMPACT_CONSTRUCTOR_DECL
+                | Kind::ANNOTATION_TYPE_ELEMENT_DECL
+                | Kind::FIELD_DECL
+                | Kind::VARIABLE_DECLARATOR
+                | Kind::ENUM_CONSTANT
+                | Kind::STATIC_INITIALIZER
+                | Kind::INSTANCE_INITIALIZER
+                | Kind::FORMAL_PARAMETER
+                | Kind::SPREAD_PARAMETER
+                | Kind::TYPE
+                | Kind::ANNOTATION
+                | Kind::MARKER_ANNOTATION
+                | Kind::QUALIFIED_NAME
+                | Kind::REQUIRES_DIRECTIVE
+                | Kind::EXPORTS_DIRECTIVE
+                | Kind::OPENS_DIRECTIVE
+                | Kind::USES_DIRECTIVE
+                | Kind::PROVIDES_DIRECTIVE
+        )
+    }
 }
 
 fn syntax_error(err: java::SyntaxError) -> SyntaxError {

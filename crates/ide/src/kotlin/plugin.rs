@@ -58,7 +58,7 @@ impl LanguageIde for Kotlin {
     }
 
     fn hover_docs(&self, db: &RootDatabase, file: FileId, item: symbols::ItemId) -> Option<String> {
-        crate::docs::kdoc_of(db, file, item)
+        crate::docs::kdoc::kdoc_of(db, file, item)
     }
 
     fn class_declaration(
@@ -99,7 +99,7 @@ impl LanguageIde for Kotlin {
         method: &hir_ty::MethodData,
         constructor: bool,
     ) -> Option<Vec<String>> {
-        nav::java::declared_parameter_names(db, file, method, constructor)
+        nav::classpath_parameter_names(db, file, method)
     }
 
     /// The library file that has to be loaded before those names can be read.
@@ -110,7 +110,7 @@ impl LanguageIde for Kotlin {
         method: &hir_ty::MethodData,
         constructor: bool,
     ) -> Option<nav::LibraryFileRef> {
-        nav::java::pending_parameter_names(db, file, method, constructor)
+        nav::classpath_pending_parameter_names(db, file, method)
     }
 
     fn inlay_hint_pending_library_files(
@@ -135,11 +135,11 @@ impl LanguageIde for Kotlin {
     }
 
     fn document_symbols(&self, db: &RootDatabase, file: FileId) -> Vec<symbols::DocumentSymbol> {
-        symbols::kotlin_document_symbols(db, file)
+        super::symbols::document_symbols(db, file)
     }
 
     fn package_symbol(&self, db: &RootDatabase, file: FileId) -> symbols::DocumentSymbol {
-        symbols::kotlin_package_symbol(db, file)
+        super::symbols::package_symbol(db, file)
     }
 
     fn source_symbol_range(
@@ -148,7 +148,7 @@ impl LanguageIde for Kotlin {
         file: FileId,
         item: symbols::ItemId,
     ) -> Option<TextRange> {
-        symbols::kotlin_source_symbol_range(db, file, item)
+        super::symbols::source_symbol_range(db, file, item)
     }
 
     fn declaration_name_range(

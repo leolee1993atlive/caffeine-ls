@@ -8,10 +8,10 @@ use ide_db::base_db::LanguageKind;
 use vfs::FileId;
 
 use crate::Severity;
+use crate::java::items::{all_items, find_method};
 use crate::lang::LanguageDiagnostics;
 use crate::{
-    DiagnosticSink, all_items, decl_code, decl_message, find_method, item_diagnostics_impl, lint,
-    make_diagnostic,
+    DiagnosticSink, decl_code, decl_message, item_diagnostics_impl, lint, make_diagnostic,
 };
 
 pub(crate) struct Java;
@@ -137,6 +137,6 @@ impl LanguageDiagnostics for Java {
         db: &dyn TyDatabase,
         file_id: FileId,
     ) -> Vec<lint::SuppressionScope> {
-        lint::suppression_scopes(db, file_id)
+        super::suppress::suppression_scopes(db, file_id)
     }
 }

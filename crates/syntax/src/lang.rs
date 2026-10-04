@@ -35,6 +35,10 @@ pub trait LanguageSyntax: Sync {
     fn parse(&self, kind: LanguageKind, text: &str) -> Parse;
     /// Re-attaches a cached green tree to this language's syntax node.
     fn syntax_node(&self, kind: LanguageKind, green: GreenNode) -> SourceFile;
+    /// Whether a syntax node of this raw kind is part of the declaration
+    /// skeleton the item tree indexes. `raw_kind` is the language's own
+    /// `SyntaxKind` as `u16`.
+    fn is_indexable(&self, raw_kind: u16) -> bool;
 }
 
 /// Every registered language, in lookup order.

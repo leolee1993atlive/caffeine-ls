@@ -7,8 +7,8 @@
 //! `FileText` owns the text, and this module owns the conversion to the
 //! Markdown an editor renders.
 
-mod javadoc;
-mod kdoc;
+pub(crate) mod javadoc;
+pub(crate) mod kdoc;
 
 use hir::hir_def::jvm::ids::ItemId;
 use vfs::FileId;
@@ -32,29 +32,6 @@ pub fn render_javadoc_of(raw: &str, owner: &str) -> String {
 /// `None` when it has no doc comment, or when the language's arm has none.
 pub(crate) fn hover_docs(db: &RootDatabase, file: FileId, item: ItemId) -> Option<String> {
     crate::lang::for_file(db, file).and_then(|ide| ide.hover_docs(db, file, item))
-}
-
-/// The Javadoc of a Java declaration, rendered as Markdown.
-pub(crate) fn javadoc_of(db: &RootDatabase, file: FileId, item: ItemId) -> Option<String> {
-    let tree = hir::hir_def::java::plugin::tree(db, file);
-    let raw = hir::item_doc(db, file, item)?;
-    let owner = tree.data(item).name().map(|name| name.simple_name());
-    let rendered = javadoc::render(raw, owner);
-    // A comment whose every tag is tooling-only (`@author`) documents
-    // nothing an editor can show.
-    (!rendered.trim().is_empty()).then_some(rendered)
-}
-
-/// The KDoc of a Kotlin declaration, rendered as Markdown.
-///
-/// KDoc is not Javadoc: the same comment structure, a Markdown body and its own
-/// tag set, so it renders through its own renderer.
-pub(crate) fn kdoc_of(db: &RootDatabase, file: FileId, item: ItemId) -> Option<String> {
-    let raw = hir::item_doc(db, file, item)?;
-    // KDoc has no tag that displays the owner's name; the owner is passed for
-    // symmetry with the JavaDoc renderer.
-    let rendered = kdoc::render(raw, None);
-    (!rendered.trim().is_empty()).then_some(rendered)
 }
 
 /// The `@param <name>` description of `item`'s doc comment — the documentation

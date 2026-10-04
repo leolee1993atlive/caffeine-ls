@@ -54,6 +54,18 @@ impl Declarations for Declared {
     fn dyn_eq(&self, other: &dyn Declarations) -> bool {
         other.as_any().downcast_ref::<Self>() == Some(self)
     }
+
+    fn render(
+        &self,
+        map: &hir_expand::ast_id_map::AstIdMap,
+        source: &syntax::SourceFile,
+    ) -> String {
+        crate::java::pretty::pretty_print(&self.0, map, source)
+    }
+
+    fn pretty_body(&self, bodies: &hir_expand::body::BodyTree) -> String {
+        crate::java::pretty::pretty_body(&self.0, bodies)
+    }
 }
 
 /// Whether the Java language lowered `file` — the Java layer's own question at

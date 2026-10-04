@@ -21,7 +21,7 @@
 //! the LSP layer pulls per file, and the conformance renderers in `hir-ty`'s
 //! integration tests print from the same surface.
 
-use hir::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
+use hir::hir_def::jvm::ids::ItemId;
 use ide_db::{
     FileRange, RootDatabase, Severity,
     base_db::{self, FileText, LanguageKind, SourceDatabase, salsa},
@@ -231,7 +231,7 @@ pub(crate) fn collect_declaration_diagnostics(
 /// against, is edited, so salsa memoizes them per [`FileText`] and the LSP
 /// layer compares digests instead of recomputing them. A text edit to another
 /// file invalidates only the innermost queries whose inputs actually changed
-/// (`body_types_query`, `class_diagnostics_query`), so re-deriving an
+/// (the type queries), so re-deriving an
 /// unaffected file's report here is a hash compare, not a re-inference.
 #[salsa::tracked(returns(clone))]
 pub(crate) fn file_diagnostics_query(
@@ -288,42 +288,6 @@ pub(crate) fn file_report_query(db: &dyn hir_ty::TyDatabase, file: FileText) -> 
 /// per file. Memoized per [`FileText`] by [`file_report_query`].
 pub fn file_report(db: &dyn hir_ty::TyDatabase, file_id: FileId) -> Arc<[Diagnostic]> {
     file_report_query(db, db.file_text(file_id))
-}
-
-pub(crate) fn find_method(tree: &ItemTree, id: ItemId, name: &str) -> Option<ItemId> {
-    match tree.data(id) {
-        ItemData::Method(method) if method.name.as_str() == name => return Some(id),
-        _ => {}
-    }
-    for &child in tree.data(id).body() {
-        if let Some(found) = find_method(tree, child, name) {
-            return Some(found);
-        }
-    }
-    None
-}
-
-/// Every `(ItemId, &ItemData)` in the tree, parents before children.
-pub(crate) fn all_items(tree: &ItemTree) -> Vec<(ItemId, &ItemData)> {
-    fn walk<'a>(tree: &'a ItemTree, id: ItemId, out: &mut Vec<(ItemId, &'a ItemData)>) {
-        let data = tree.data(id);
-        out.push((id, data));
-        for &child in data.body() {
-            walk(tree, child, out);
-        }
-        // A local class-like declaration ([JLS §14.3]) is not a member, so it
-        // is not in any `body()`: it and its members are walked from the
-        // declaration whose body declares it, so their bodies are inferred
-        // and their diagnostics reported too.
-        for local in tree.local_types_of(id) {
-            walk(tree, local, out);
-        }
-    }
-    let mut out = Vec::new();
-    for &top in &tree.top {
-        walk(tree, top, &mut out);
-    }
-    out
 }
 
 pub(crate) fn make_diagnostic(

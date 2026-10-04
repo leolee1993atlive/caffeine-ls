@@ -18,9 +18,12 @@ use std::sync::Arc;
 
 use base_db::LanguageKind;
 use hir_expand::ast_id_map::AstIdMap;
+use hir_expand::body::BodyTree;
+use syntax::SourceFile;
 use vfs::FileId;
 
-use crate::{db::DefDatabase, item_tree::LoweredFile};
+use crate::db::DefDatabase;
+use crate::item_tree::LoweredFile;
 
 /// The lowered declarations of one file, in whichever language (IntelliJ:
 /// `PsiFile`).
@@ -33,6 +36,27 @@ pub trait Declarations: std::fmt::Debug + Send + Sync {
     /// backdates an edit that only changes a body on this being `true`
     /// ([`crate::db`]), so it must compare the models, not their addresses.
     fn dyn_eq(&self, other: &dyn Declarations) -> bool;
+
+    /// The declaration model rendered for a snapshot, resolved against `file`.
+    fn pretty(&self, db: &dyn DefDatabase, file: FileId) -> String {
+        let language = self.language();
+        let map = crate::db::ast_id_map(db, file, language);
+        let source = base_db::parse(db, file, language).syntax_node(language);
+        self.render(&map, &source)
+    }
+
+    /// The declaration model rendered from an already-resolved parse. Snapshot
+    /// helpers call this; [`pretty`] loads the same inputs from the database.
+    fn render(&self, map: &AstIdMap, source: &SourceFile) -> String {
+        let _ = (map, source);
+        format!("file ({})\n", self.language().name())
+    }
+
+    /// The lowered bodies of the file, rendered for a snapshot.
+    fn pretty_body(&self, bodies: &BodyTree) -> String {
+        let _ = bodies;
+        String::new()
+    }
 }
 
 /// The lowering of one language (IntelliJ: the file element type).

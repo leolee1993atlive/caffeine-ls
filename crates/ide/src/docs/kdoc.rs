@@ -271,3 +271,20 @@ mod tests {
         assert!(rendered.contains("- `a` first continued"), "{rendered}");
     }
 }
+
+use hir::hir_def::jvm::ids::ItemId;
+use vfs::FileId;
+
+use crate::RootDatabase;
+
+/// The KDoc of a Kotlin declaration, rendered as Markdown.
+///
+/// KDoc is not Javadoc: the same comment structure, a Markdown body and its own
+/// tag set, so it renders through its own renderer.
+pub(crate) fn kdoc_of(db: &RootDatabase, file: FileId, item: ItemId) -> Option<String> {
+    let raw = hir::item_doc(db, file, item)?;
+    // KDoc has no tag that displays the owner's name; the owner is passed for
+    // symmetry with the JavaDoc renderer.
+    let rendered = render(raw, None);
+    (!rendered.trim().is_empty()).then_some(rendered)
+}

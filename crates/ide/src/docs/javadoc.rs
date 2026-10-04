@@ -958,3 +958,19 @@ fn trim_brackets(name: &str) -> &str {
         .and_then(|name| name.strip_suffix('>'))
         .unwrap_or(name)
 }
+
+use hir::hir_def::jvm::ids::ItemId;
+use vfs::FileId;
+
+use crate::RootDatabase;
+
+/// The Javadoc of a Java declaration, rendered as Markdown.
+pub(crate) fn javadoc_of(db: &RootDatabase, file: FileId, item: ItemId) -> Option<String> {
+    let tree = hir::hir_def::java::plugin::tree(db, file);
+    let raw = hir::item_doc(db, file, item)?;
+    let owner = tree.data(item).name().map(|name| name.simple_name());
+    let rendered = render(raw, owner);
+    // A comment whose every tag is tooling-only (`@author`) documents
+    // nothing an editor can show.
+    (!rendered.trim().is_empty()).then_some(rendered)
+}

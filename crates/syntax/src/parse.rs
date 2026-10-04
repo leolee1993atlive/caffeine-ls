@@ -32,6 +32,22 @@ impl SourceFile {
     pub fn language(&self) -> LanguageKind {
         lang::kind_of(self)
     }
+
+    /// The Java syntax root, when this file is Java.
+    pub fn java_syntax(&self) -> Option<&rowan::SyntaxNode<java::Lang>> {
+        match self {
+            SourceFile::Java(file) => Some(&file.syntax_node),
+            SourceFile::Kotlin(_) => None,
+        }
+    }
+
+    /// The Kotlin syntax root, when this file is Kotlin or a Kotlin script.
+    pub fn kotlin_syntax(&self) -> Option<&rowan::SyntaxNode<kotlin::Lang>> {
+        match self {
+            SourceFile::Kotlin(file) => Some(&file.syntax_node),
+            SourceFile::Java(_) => None,
+        }
+    }
 }
 
 impl Parse {

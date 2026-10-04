@@ -53,6 +53,56 @@ impl super::LanguageSyntax for Kotlin {
             syntax_node: SyntaxNode::new_root(green),
         })
     }
+
+    fn is_indexable(&self, raw_kind: u16) -> bool {
+        use crate::kotlin::SyntaxKind as Kind;
+        use rowan::Language as _;
+        let kind = crate::kotlin::Lang::kind_from_raw(rowan::SyntaxKind(raw_kind));
+        matches!(
+            kind,
+            Kind::FILE_ANNOTATION
+                | Kind::PACKAGE_HEADER
+                | Kind::IMPORT_HEADER
+                | Kind::TYPE_ALIAS
+                | Kind::CLASS_DECL
+                | Kind::OBJECT_DECL
+                | Kind::COMPANION_OBJECT
+                | Kind::OBJECT_LITERAL
+                | Kind::CLASS_BODY
+                | Kind::ENUM_CLASS_BODY
+                | Kind::ENUM_ENTRIES
+                | Kind::ENUM_ENTRY
+                | Kind::FUNCTION_DECL
+                | Kind::PROPERTY_DECL
+                | Kind::VARIABLE_DECLARATION
+                | Kind::MULTI_VARIABLE_DECLARATION
+                | Kind::PRIMARY_CONSTRUCTOR
+                | Kind::SECONDARY_CONSTRUCTOR
+                | Kind::ANONYMOUS_INITIALIZER
+                | Kind::CLASS_PARAMETERS
+                | Kind::CLASS_PARAMETER
+                | Kind::VALUE_PARAMETERS
+                | Kind::VALUE_PARAMETER
+                | Kind::TYPE_PARAMETERS
+                | Kind::TYPE_PARAMETER
+                | Kind::TYPE_CONSTRAINTS
+                | Kind::TYPE_CONSTRAINT
+                | Kind::DELEGATION_SPECIFIERS
+                | Kind::DELEGATION_SPECIFIER
+                | Kind::CONSTRUCTOR_INVOCATION
+                | Kind::CONSTRUCTOR_DELEGATION_CALL
+                | Kind::EXPLICIT_DELEGATION
+                | Kind::RECEIVER_TYPE
+                | Kind::GETTER
+                | Kind::SETTER
+                | Kind::TYPE
+                | Kind::NULLABLE_TYPE
+                | Kind::DEFINITELY_NON_NULLABLE_TYPE
+                | Kind::PARENTHESIZED_TYPE
+                | Kind::ANNOTATION
+                | Kind::QUALIFIED_NAME
+        )
+    }
 }
 
 fn syntax_error(err: kotlin::SyntaxError) -> SyntaxError {

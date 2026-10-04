@@ -187,3 +187,56 @@ pub(crate) fn pending_parameter_names(
     crate::lang::for_file(db, file)
         .and_then(|ide| ide.pending_parameter_names(db, file, method, constructor))
 }
+
+/// Parameter names already recorded for a classpath member: the classfile or
+/// the session cache, with no item tree. `None` when the names are not cached
+/// and a language must read a loaded source, or when nothing can name them.
+pub(crate) fn classpath_parameter_names(
+    db: &RootDatabase,
+    file: FileId,
+    method: &hir_ty::MethodData,
+) -> Option<Vec<String>> {
+    let (owner, descriptor, library) = classpath_member(db, file, method)?;
+    hir::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor)
+        .and_then(|cached| cached.into_names())
+}
+
+/// The library file that has to be loaded before a classpath member can be
+/// named. `None` when the names are already cached, the source is loaded, or
+/// no load can name the member.
+pub(crate) fn classpath_pending_parameter_names(
+    db: &RootDatabase,
+    file: FileId,
+    method: &hir_ty::MethodData,
+) -> Option<LibraryFileRef> {
+    let (owner, descriptor, library) = classpath_member(db, file, method)?;
+    if hir::cached_member_params(db, library, owner.as_str(), &method.name, &descriptor).is_some() {
+        return None;
+    }
+    match hir::library_source_decl(db, library, owner.as_str())? {
+        hir::LibrarySourceDecl::Pending { entry, path } => {
+            let sources = hir::library_sources(db, library)?;
+            Some(LibraryFileRef::Source {
+                library,
+                archive: sources.archive,
+                entry,
+                path,
+            })
+        }
+        hir::LibrarySourceDecl::Loaded { .. } | hir::LibrarySourceDecl::Decompiled { .. } => None,
+    }
+}
+
+fn classpath_member<'a>(
+    db: &RootDatabase,
+    file: FileId,
+    method: &'a hir_ty::MethodData,
+) -> Option<(&'a hir_expand::name::Name, &'a str, hir::LibraryId)> {
+    let owner = method.owner.as_fqn()?;
+    let descriptor = method.descriptor.as_deref()?;
+    let scope = hir_ty::scope_for_file(db, file);
+    let hir::Resolved::Library(class) = hir::fqn_resolve(db, &scope, owner.as_str())? else {
+        return None;
+    };
+    Some((owner, descriptor, class.library))
+}

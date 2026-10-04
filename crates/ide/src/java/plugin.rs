@@ -65,7 +65,7 @@ impl LanguageIde for Java {
     }
 
     fn hover_docs(&self, db: &RootDatabase, file: FileId, item: symbols::ItemId) -> Option<String> {
-        docs::javadoc_of(db, file, item)
+        crate::docs::javadoc::javadoc_of(db, file, item)
     }
 
     fn class_declaration(
@@ -84,7 +84,8 @@ impl LanguageIde for Java {
         method: &hir_ty::MethodData,
         constructor: bool,
     ) -> Option<Vec<String>> {
-        nav::java::declared_parameter_names(db, file, method, constructor)
+        nav::classpath_parameter_names(db, file, method)
+            .or_else(|| nav::java::declared_parameter_names(db, file, method, constructor))
     }
 
     fn pending_parameter_names(
@@ -94,7 +95,7 @@ impl LanguageIde for Java {
         method: &hir_ty::MethodData,
         constructor: bool,
     ) -> Option<nav::LibraryFileRef> {
-        nav::java::pending_parameter_names(db, file, method, constructor)
+        nav::classpath_pending_parameter_names(db, file, method)
     }
 
     fn highlight(&self, db: &RootDatabase, file: FileId) -> Vec<highlight::Highlight> {
@@ -134,11 +135,11 @@ impl LanguageIde for Java {
     }
 
     fn document_symbols(&self, db: &RootDatabase, file: FileId) -> Vec<symbols::DocumentSymbol> {
-        symbols::java_document_symbols(db, file)
+        super::symbols::document_symbols(db, file)
     }
 
     fn package_symbol(&self, db: &RootDatabase, file: FileId) -> symbols::DocumentSymbol {
-        symbols::java_package_symbol(db, file)
+        super::symbols::package_symbol(db, file)
     }
 
     fn source_symbol_range(
@@ -147,7 +148,7 @@ impl LanguageIde for Java {
         file: FileId,
         item: symbols::ItemId,
     ) -> Option<TextRange> {
-        symbols::java_source_symbol_range(db, file, item)
+        super::symbols::source_symbol_range(db, file, item)
     }
 
     fn declaration_name_range(

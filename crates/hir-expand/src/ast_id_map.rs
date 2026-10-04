@@ -165,10 +165,18 @@ impl AstIdMap {
     /// structure of the file changes, which is the load-bearing invariant
     /// behind salsa backdating of the item tree.
     pub fn from_source_file(source: &SourceFile) -> Self {
-        match source {
-            SourceFile::Java(file) => build(&file.syntax_node),
-            SourceFile::Kotlin(file) => build(&file.syntax_node),
+        // An unknown file, or a kind no language registered, keeps the empty
+        // map: there is no declaration skeleton to index.
+        if syntax::lang::for_kind(source.language()).is_none() {
+            return Self::default();
         }
+        if let Some(root) = source.java_syntax() {
+            return build(root);
+        }
+        if let Some(root) = source.kotlin_syntax() {
+            return build(root);
+        }
+        Self::default()
     }
 
     /// The id of the node `ptr` points to, when the node was indexed.
@@ -226,45 +234,6 @@ fn is_class_like_decl(kind: J) -> bool {
     matches!(
         kind,
         J::CLASS_DECL | J::INTERFACE_DECL | J::ENUM_DECL | J::RECORD_DECL
-    )
-}
-
-/// The kinds that may be indexed: every declaration node an item or a
-/// resolved range can target, plus the narrower nodes ranges are derived from
-/// (`TYPE`, `QUALIFIED_NAME`, `ANNOTATION`/`MARKER_ANNOTATION`,
-/// `FORMAL_PARAMETER`/`SPREAD_PARAMETER` for record components and the module
-/// directives).
-fn is_indexable(kind: J) -> bool {
-    matches!(
-        kind,
-        J::PACKAGE_DECL
-            | J::IMPORT_DECL
-            | J::CLASS_DECL
-            | J::INTERFACE_DECL
-            | J::ENUM_DECL
-            | J::RECORD_DECL
-            | J::ANNOTATION_TYPE_DECL
-            | J::MODULE_DECL
-            | J::METHOD_DECL
-            | J::CONSTRUCTOR_DECL
-            | J::COMPACT_CONSTRUCTOR_DECL
-            | J::ANNOTATION_TYPE_ELEMENT_DECL
-            | J::FIELD_DECL
-            | J::VARIABLE_DECLARATOR
-            | J::ENUM_CONSTANT
-            | J::STATIC_INITIALIZER
-            | J::INSTANCE_INITIALIZER
-            | J::FORMAL_PARAMETER
-            | J::SPREAD_PARAMETER
-            | J::TYPE
-            | J::ANNOTATION
-            | J::MARKER_ANNOTATION
-            | J::QUALIFIED_NAME
-            | J::REQUIRES_DIRECTIVE
-            | J::EXPORTS_DIRECTIVE
-            | J::OPENS_DIRECTIVE
-            | J::USES_DIRECTIVE
-            | J::PROVIDES_DIRECTIVE
     )
 }
 
@@ -332,7 +301,9 @@ fn build<L: Skeleton>(root: &rowan::SyntaxNode<L>) -> AstIdMap {
 
 impl Skeleton for syntax::java::Lang {
     fn is_indexable(kind: J) -> bool {
-        is_indexable(kind)
+        syntax::lang::for_kind(syntax::LanguageKind::Java).is_some_and(|language| {
+            language.is_indexable(<syntax::java::Lang as rowan::Language>::kind_to_raw(kind).0)
+        })
     }
 
     fn plan(
@@ -388,7 +359,9 @@ impl Skeleton for syntax::java::Lang {
 
 impl Skeleton for syntax::kotlin::Lang {
     fn is_indexable(kind: K) -> bool {
-        is_indexable_kotlin(kind)
+        syntax::lang::for_kind(syntax::LanguageKind::Kotlin).is_some_and(|language| {
+            language.is_indexable(<syntax::kotlin::Lang as rowan::Language>::kind_to_raw(kind).0)
+        })
     }
 
     fn anchors_in_body(kind: K) -> bool {
@@ -490,57 +463,6 @@ fn is_type_node(kind: K) -> bool {
     )
 }
 
-/// The Kotlin kinds that may be indexed: every declaration node an item or a
-/// resolved range can target, plus the narrower nodes ranges are derived from
-/// (the declaration-part containers, the parameter/type-parameter lists, the
-/// type nodes, annotations and qualified names).
-fn is_indexable_kotlin(kind: K) -> bool {
-    matches!(
-        kind,
-        K::FILE_ANNOTATION
-            | K::PACKAGE_HEADER
-            | K::IMPORT_HEADER
-            | K::TYPE_ALIAS
-            | K::CLASS_DECL
-            | K::OBJECT_DECL
-            | K::COMPANION_OBJECT
-            | K::OBJECT_LITERAL
-            | K::CLASS_BODY
-            | K::ENUM_CLASS_BODY
-            | K::ENUM_ENTRIES
-            | K::ENUM_ENTRY
-            | K::FUNCTION_DECL
-            | K::PROPERTY_DECL
-            | K::VARIABLE_DECLARATION
-            | K::MULTI_VARIABLE_DECLARATION
-            | K::PRIMARY_CONSTRUCTOR
-            | K::SECONDARY_CONSTRUCTOR
-            | K::ANONYMOUS_INITIALIZER
-            | K::CLASS_PARAMETERS
-            | K::CLASS_PARAMETER
-            | K::VALUE_PARAMETERS
-            | K::VALUE_PARAMETER
-            | K::TYPE_PARAMETERS
-            | K::TYPE_PARAMETER
-            | K::TYPE_CONSTRAINTS
-            | K::TYPE_CONSTRAINT
-            | K::DELEGATION_SPECIFIERS
-            | K::DELEGATION_SPECIFIER
-            | K::CONSTRUCTOR_INVOCATION
-            | K::CONSTRUCTOR_DELEGATION_CALL
-            | K::EXPLICIT_DELEGATION
-            | K::RECEIVER_TYPE
-            | K::GETTER
-            | K::SETTER
-            | K::TYPE
-            | K::NULLABLE_TYPE
-            | K::DEFINITELY_NON_NULLABLE_TYPE
-            | K::PARENTHESIZED_TYPE
-            | K::ANNOTATION
-            | K::QUALIFIED_NAME
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,10 +489,7 @@ class Foo {
     #[test]
     fn round_trip() {
         let (file, map) = sample();
-        let SourceFile::Java(file) = &file else {
-            panic!("expected a Java source file");
-        };
-        let root = &file.syntax_node;
+        let root = file.java_syntax().expect("expected a Java source file");
 
         // Resolve every indexed pointer and check the id round-trips.
         for (_, ptr) in map.arena.iter() {
@@ -634,10 +553,8 @@ class Foo {
 }
 ";
         let parse = syntax::SourceFile::parse(LanguageKind::Java, text);
-        let SourceFile::Java(file) = &parse.syntax_node(LanguageKind::Java) else {
-            panic!("expected a Java source file");
-        };
-        let root = &file.syntax_node;
+        let file = parse.syntax_node(LanguageKind::Java);
+        let root = file.java_syntax().expect("expected a Java source file");
         let map = AstIdMap::from_source_file(&parse.syntax_node(LanguageKind::Java));
 
         let indexed: Vec<_> = map
@@ -718,10 +635,8 @@ enum Tree {
 }
 ";
         let parse = syntax::SourceFile::parse(LanguageKind::Java, text);
-        let SourceFile::Java(file) = &parse.syntax_node(LanguageKind::Java) else {
-            panic!("expected a Java source file");
-        };
-        let root = &file.syntax_node;
+        let file = parse.syntax_node(LanguageKind::Java);
+        let root = file.java_syntax().expect("expected a Java source file");
         let map = AstIdMap::from_source_file(&parse.syntax_node(LanguageKind::Java));
 
         let indexed: Vec<_> = map
@@ -769,10 +684,8 @@ class Foo {
 }
 ";
         let parse = syntax::SourceFile::parse(LanguageKind::Java, text);
-        let SourceFile::Java(file) = &parse.syntax_node(LanguageKind::Java) else {
-            panic!("expected a Java source file");
-        };
-        let root = &file.syntax_node;
+        let file = parse.syntax_node(LanguageKind::Java);
+        let root = file.java_syntax().expect("expected a Java source file");
         let map = AstIdMap::from_source_file(&parse.syntax_node(LanguageKind::Java));
         let kinds: Vec<_> = map
             .arena
@@ -820,10 +733,8 @@ class Foo {
 }
 ";
         let parse = syntax::SourceFile::parse(LanguageKind::Java, text);
-        let SourceFile::Java(file) = &parse.syntax_node(LanguageKind::Java) else {
-            panic!("expected a Java source file");
-        };
-        let root = &file.syntax_node;
+        let file = parse.syntax_node(LanguageKind::Java);
+        let root = file.java_syntax().expect("expected a Java source file");
         let map = AstIdMap::from_source_file(&parse.syntax_node(LanguageKind::Java));
 
         let names: Vec<String> = map

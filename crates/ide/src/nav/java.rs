@@ -3035,7 +3035,7 @@ fn item_header(db: &RootDatabase, file: FileId, tree: &ItemTree, item: ItemId) -
     let simple = data.name()?.simple_name();
     Some(match hir::java::plugin::symbol_kind(data)? {
         hir::SourceSymbolKind::Method => {
-            crate::symbols::method_signature(db, file, item, simple, true)
+            crate::java::symbols::method_signature(db, file, item, simple, true)
         }
         hir::SourceSymbolKind::Field => {
             format!("{simple}: {}", crate::symbols::item_ty(db, file, item))
