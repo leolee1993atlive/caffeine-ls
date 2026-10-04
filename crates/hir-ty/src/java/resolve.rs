@@ -28,12 +28,12 @@ use syntax::SourceFile;
 use syntax::java::Lang;
 use vfs::FileId;
 
+use classfile::stub::{TypeBound, TypeRef};
 use hir_def::java::item_tree::{ImportItem, ItemData, ItemId, ItemTree, TypeParam};
 use hir_def::java::ranges;
 use hir_expand::ast_id_map::AstIdMap;
 use hir_expand::body::{BodyId, BodyTree, LocalId, StmtData, StmtId};
 use hir_expand::name::Name;
-use syntax::stub::{TypeBound, TypeRef};
 
 use crate::{
     java::range_ctx::range_ctx,

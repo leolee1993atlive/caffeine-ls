@@ -185,7 +185,7 @@ public class Smoke {
     let types = hir_ty::body_types(&db, file, item).unwrap();
     assert!(types.diagnostics.is_empty(), "{:?}", types.diagnostics);
     let string = Ty::reference(&db, "java.lang.String", vec![]);
-    let int = Ty::primitive(&db, syntax::stub::PrimitiveType::Int);
+    let int = Ty::primitive(&db, classfile::stub::PrimitiveType::Int);
     for (call, expected) in [
         ("AppKt.answer()", int),
         (
@@ -1223,7 +1223,7 @@ class Use {
         ("require", Ty::reference(&db, "java.lang.String", vec![])),
         (
             "answer",
-            Ty::primitive(&db, syntax::stub::PrimitiveType::Int),
+            Ty::primitive(&db, classfile::stub::PrimitiveType::Int),
         ),
         ("action", Ty::void(&db)),
         ("unitValue", Ty::reference(&db, "kotlin.Unit", vec![])),

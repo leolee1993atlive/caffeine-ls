@@ -10,8 +10,8 @@
 //! It re-exports the model so that Java-side code keeps addressing it through
 //! `crate::java::ty`.
 
+use classfile::stub::{TypeBound, TypeRef};
 use hir_expand::name::Name;
-use syntax::stub::{TypeBound, TypeRef};
 
 use rustc_hash::FxHashMap;
 

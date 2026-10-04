@@ -69,11 +69,11 @@ use std::{fs::File, io::Read as _};
 use anyhow::Context as _;
 use base_db::salsa;
 use camino::{Utf8Path, Utf8PathBuf};
+use classfile::stub::ClassOrModuleStub;
 use hir_def::jvm::access::JvmAccessFlags;
 use hir_expand::name::Name;
 use rustc_hash::FxHashMap;
 use smol_str::SmolStr;
-use syntax::stub::ClassOrModuleStub;
 use triomphe::Arc;
 use zip::ZipArchive;
 
@@ -476,7 +476,7 @@ fn ct_sym_class_view_query(
     let entry = format!("{dir}/{module}/{package}/{simple}.sig");
     let interner = &db.hir_state().interner;
     let bytes = read_entry(&path, &entry)?;
-    match syntax::class_parser::ClassParser::new(interner).parse_cafebabe(&bytes) {
+    match classfile::class_parser::ClassParser::new(interner).parse_cafebabe(&bytes) {
         Ok(ClassOrModuleStub::Class(class)) => Some(Arc::new(class)),
         Ok(ClassOrModuleStub::Module(_)) => None,
         Err(err) => {

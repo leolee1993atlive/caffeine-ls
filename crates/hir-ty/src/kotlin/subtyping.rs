@@ -26,7 +26,7 @@
 //! The declaration-site variance of a **source** class comes from the item
 //! tree. A *library* class's variance is not modelled: the classfile
 //! `Signature` attribute encodes `out T` as `+T`, and the stub layer
-//! ([`syntax::stub::TypeParameter`]) keeps bounds but not that flag, so a
+//! ([`classfile::stub::TypeParameter`]) keeps bounds but not that flag, so a
 //! library classifier is compared invariantly — a recorded deviation, and the
 //! reason a covariance test declares its own class.
 

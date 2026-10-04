@@ -147,7 +147,7 @@ impl JvmMemberSource for Java {
             hir::Resolved::Facade { .. } => Some((JvmClassKind::Facade, true)),
             hir::Resolved::Library(library) => {
                 let record = hir::class_record(db, library)?;
-                let syntax::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
+                let classfile::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
                     return None;
                 };
                 // JVM access flags ([JVMS §4.1]): an interface carries

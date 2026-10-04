@@ -1045,8 +1045,8 @@ pub(crate) fn source_top_level(package: Option<&str>, fqn: &str) -> String {
 fn library_type_erasure<'a>(
     db: &dyn TyDatabase,
     mut tyref: &'a hir::TypeRef<hir::Symbol>,
-    class_params: &'a [syntax::stub::TypeParameter<hir::Symbol>],
-    mut method_params: &'a [syntax::stub::TypeParameter<hir::Symbol>],
+    class_params: &'a [classfile::stub::TypeParameter<hir::Symbol>],
+    mut method_params: &'a [classfile::stub::TypeParameter<hir::Symbol>],
 ) -> Ty {
     let mut remaining = class_params.len() + method_params.len();
     let mut dimensions = 0;

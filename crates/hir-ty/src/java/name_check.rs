@@ -13,6 +13,7 @@
 //! exists (or when a file is not mapped to a source set and no JDK is
 //! registered) every name would fail and the reports would be noise.
 
+use classfile::stub::TypeRef;
 use hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 use hir_def::jvm::decl::{ItemAnnotationRef, ItemTypeRef};
 use hir_expand::{
@@ -24,7 +25,6 @@ use hir_expand::{
 use rowan::TextRange;
 use stacksafe::stacksafe;
 use syntax::SourceFile;
-use syntax::stub::TypeRef;
 use vfs::FileId;
 
 use crate::{

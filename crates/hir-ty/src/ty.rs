@@ -28,11 +28,11 @@
 //! accessor therefore takes the database.
 use std::fmt;
 
+use classfile::stub::PrimitiveType;
 use hir_def::jvm::ids::ItemId;
 use hir_expand::name::Name;
 use rustc_hash::FxHashMap;
 use stacksafe::stacksafe;
-use syntax::stub::PrimitiveType;
 use vfs::FileId;
 
 use crate::jvm::db::TyDatabase;

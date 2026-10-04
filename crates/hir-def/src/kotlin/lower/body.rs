@@ -24,10 +24,10 @@
 //! their operands in one node, so the walker pulls the operand children out in
 //! source order.
 
+use classfile::stub::TypeRef;
 use rowan::{NodeOrToken, SyntaxNode, SyntaxToken, TextRange};
 use stacksafe::stacksafe;
 use syntax::kotlin::{Lang, SyntaxKind as K};
-use syntax::stub::TypeRef;
 
 use hir_expand::{
     body::{
@@ -2026,7 +2026,7 @@ fn label_qualifier(node: &SyntaxNode<Lang>) -> Option<SpannedTypeRef> {
         .skip_while(|token| !is_token(token, K::AT))
         .find(|token| is_token(token, K::IDENTIFIER))?;
     Some(SpannedTypeRef::new(
-        syntax::stub::TypeRef::Reference {
+        classfile::stub::TypeRef::Reference {
             name: Name::new(super::identifier_text(name.text())),
             generic_args: Vec::new(),
         },

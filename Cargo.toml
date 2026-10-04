@@ -5,6 +5,7 @@ default-members = ["crates/caffeine-ls"]
 
 [workspace.dependencies]
 base-db = { path = "./crates/base-db/" }
+classfile = { path = "./crates/classfile/" }
 hir = { path = "./crates/hir/" }
 hir-def = { path = "./crates/hir-def/" }
 hir-expand = { path = "./crates/hir-expand/" }

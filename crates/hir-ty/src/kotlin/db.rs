@@ -478,8 +478,8 @@ fn class_is_kotlin_facade_metadata(db: &dyn TyDatabase, entry: &hir::ResolvedCla
                 interner.resolve(name) == "k"
                     && matches!(
                         value,
-                        syntax::stub::AnnotationValue::Primitive(
-                            syntax::stub::PrimitiveValue::Int(2 | 4 | 5)
+                        classfile::stub::AnnotationValue::Primitive(
+                            classfile::stub::PrimitiveValue::Int(2 | 4 | 5)
                         )
                     )
             })

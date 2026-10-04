@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 bitflags.workspace = true
+classfile.workspace = true
 dashmap.workspace = true
 hir.workspace = true
 hir-expand.workspace = true

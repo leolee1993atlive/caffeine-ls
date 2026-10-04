@@ -40,7 +40,7 @@ use super::ty::MAPPED_TYPES;
 
 use crate::jvm::db::TyDatabase;
 use crate::ty::{Ty, TyKind};
-use syntax::stub::PrimitiveType;
+use classfile::stub::PrimitiveType;
 
 /// The JVM class a built-in Kotlin classifier compiles to, for the built-ins
 /// whose JVM type is a *class* the classpath can be asked about.

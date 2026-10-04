@@ -18,11 +18,11 @@
 //! `#function-types`, `#nullable-types`, `#type-containment`,
 //! `#definitely-non-nullable-types`.
 
-use syntax::stub::{TypeBound, TypeRef};
+use classfile::stub::{TypeBound, TypeRef};
 
 use hir_expand::name::Name;
 
-use syntax::stub::PrimitiveType;
+use classfile::stub::PrimitiveType;
 
 use hir_def::kotlin::modifiers::KotlinVariance as Variance;
 

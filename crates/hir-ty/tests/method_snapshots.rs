@@ -6,8 +6,8 @@
 #[macro_use]
 mod common;
 
+use classfile::stub::PrimitiveType;
 use hir_ty::{Ty, member_set};
-use syntax::stub::PrimitiveType;
 
 use crate::common::{
     TestDatabase, check_body_diagnostic_spans, check_methods, check_source_methods,

@@ -3,8 +3,8 @@
 //! CST order and every field renders through fixed helpers, the output is
 //! deterministic for a given source file.
 
+use classfile::stub::{PrimitiveType, TypeBound, TypeRef};
 use syntax::SourceFile;
-use syntax::stub::{PrimitiveType, TypeBound, TypeRef};
 
 use hir_expand::{
     ast_id_map::AstIdMap,

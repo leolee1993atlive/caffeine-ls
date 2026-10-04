@@ -44,6 +44,7 @@
 //! declares no methods declares no elements, so every pair of a normal
 //! annotation of it is an error ([§9.7.1]) and none can be missing.
 
+use classfile::stub::PrimitiveType;
 use hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
 use hir_def::jvm::decl::{ItemAnnotationRef, ItemAnnotationValue, ItemTypeRef};
 use hir_expand::{
@@ -53,7 +54,6 @@ use hir_expand::{
 };
 use rust_asm::constants::ACC_ENUM;
 use rustc_hash::FxHashSet;
-use syntax::stub::PrimitiveType;
 use vfs::FileId;
 
 use crate::java::annotation_value::{self, ValueCtx};

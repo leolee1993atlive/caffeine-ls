@@ -1,7 +1,7 @@
 //! Compact, serializable declaration stubs for JVM classes.
 //!
 //! The stub data types themselves are defined generically over the name
-//! representation `N` in [`syntax::stub`] and re-exported here. This module
+//! representation `N` in [`classfile::stub`] and re-exported here. This module
 //! adds the conversions between the two instantiations:
 //!
 //! * `N = [`Symbol`]` (a [`lasso::Spur`] into a session-wide interner) is the
@@ -15,7 +15,7 @@
 use lasso::ThreadedRodeo;
 use rustc_hash::FxHashMap;
 
-pub use syntax::stub::{
+pub use classfile::stub::{
     AnnotationSig, AnnotationValue, ClassKind, ClassOrModuleStub, ClassStub, FieldStub, MethodStub,
     ModuleExports, ModuleOpens, ModuleProvides, ModuleRequires, ModuleStub, ParamData,
     PrimitiveType, PrimitiveValue, RecordComponentData, Symbol, TypeBound, TypeParameter, TypeRef,
@@ -32,7 +32,7 @@ pub type DiskModuleRecord = ModuleStub<u32>;
 pub type DiskClassOrModuleRecord = ClassOrModuleStub<u32>;
 
 /// Builds the per-library string table while converting the
-/// [`Symbol`]-based stubs produced by `syntax::ClassParser` into the
+/// [`Symbol`]-based stubs produced by `classfile::ClassParser` into the
 /// on-disk `u32`-based representation.
 pub struct StubStringTable<'a> {
     interner: &'a ThreadedRodeo,

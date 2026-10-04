@@ -20,6 +20,7 @@
 //! [§4.12.4]: https://docs.oracle.com/javase/specs/jls/se26/html/jls-4.html#jls-4.12.4
 //! [§15.29]: https://docs.oracle.com/javase/specs/jls/se26/html/jls-15.html#jls-15.29
 
+use classfile::stub::{AnnotationValue as ClassfileValue, PrimitiveType, PrimitiveValue};
 use hir_def::java::item_tree::{ItemData, ItemId};
 use hir_def::jvm::decl::ItemAnnotationValue;
 use hir_expand::body::{BinaryOp, BodyTree, ExprData, ExprId, Literal, UnaryOp};
@@ -27,7 +28,6 @@ use hir_expand::name::Name;
 use rowan::SyntaxNode;
 use rustc_hash::FxHashSet;
 use syntax::java::{Lang, SyntaxKind as J, translate_unicode_escapes};
-use syntax::stub::{AnnotationValue as ClassfileValue, PrimitiveType, PrimitiveValue};
 use vfs::FileId;
 
 use crate::java::const_eval::{ArithOp, shift_mask, wrap_arith, wrap_divrem, wrap_ushr};

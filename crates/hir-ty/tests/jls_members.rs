@@ -12,7 +12,7 @@ use crate::common::{
     ClassSpec, DeprecationSpec, check_body_types, check_body_types_with_libs,
     check_class_diagnostics, check_methods, check_resolve_src, check_source_methods,
 };
-use syntax::stub::PrimitiveType;
+use classfile::stub::PrimitiveType;
 
 // -- green: `super(args)` resolves against the direct superclass --------------
 

@@ -2,9 +2,9 @@
 //! expected-type threading, boolean-flow outcome recording, the primitive
 //! and boxing shortcuts, and the comparability/castability tests.
 
+use classfile::stub::PrimitiveType;
 use hir_expand::body::{BinaryOp, ExprData, ExprId, UnaryOp};
 use rowan::TextRange;
-use syntax::stub::PrimitiveType;
 
 use crate::java::{
     const_eval::Const,

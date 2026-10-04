@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 base-db.workspace = true
+classfile.workspace = true
 hir.workspace = true
 hir-def.workspace = true
 hir-expand.workspace = true

@@ -60,6 +60,7 @@
 //! <https://kotlinlang.org/docs/java-interop.html>, as the item tree's
 //! class-kind table already does.
 
+use classfile::stub::TypeRef;
 use hir::hir_def::kotlin::item_tree::{
     ClassData, ConstructorData, FunctionData, KotlinAnnotationRef, KotlinClassKind, KotlinItemData,
     KotlinItemTree, PropertyData,
@@ -72,7 +73,6 @@ use hir_def::kotlin::annotations::JvmAnnotation;
 use hir_expand::body::Literal;
 use hir_expand::ids::ItemId;
 use hir_expand::name::Name;
-use syntax::stub::TypeRef;
 use vfs::FileId;
 
 use super::resolve::KotlinResolver;

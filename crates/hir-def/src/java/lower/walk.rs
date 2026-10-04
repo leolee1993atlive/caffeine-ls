@@ -6,9 +6,9 @@
 //! lowered into the per-file body tree ([`crate::lower::java::body`]) and the
 //! source ranges of every declaration are kept.
 
+use classfile::stub::{PrimitiveType, TypeBound, TypeRef};
 use java_syntax::{Lang, SyntaxKind as J, translate_unicode_escapes};
 use rowan::{NodeOrToken, SyntaxNode, SyntaxToken, TextRange, TextSize};
-use syntax::stub::{PrimitiveType, TypeBound, TypeRef};
 
 use hir_expand::{
     ast_id_map::{AstIdMap, FileAstId, node_ptr},

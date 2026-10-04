@@ -4,8 +4,8 @@
 #[macro_use]
 mod common;
 
+use classfile::stub::PrimitiveType;
 use hir_ty::{BoundKind, Ty, WildcardBound};
-use syntax::stub::PrimitiveType;
 
 use crate::common::{
     Relation, TestDatabase, check_relations, check_supertypes, check_supertypes_of,

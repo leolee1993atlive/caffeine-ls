@@ -25,7 +25,7 @@
 //! so [`ClassData`] carries a [`KotlinClassKind`] instead of the Java layer's
 //! one variant per node kind. The shared, language-neutral twin types of the
 //! Java layer ([`ItemTypeRef`], [`ItemAnnotationRef`], [`Param`]) are reused
-//! verbatim — they are `syntax::stub`- and `Name`-based and carry no Java
+//! verbatim — they are `classfile::stub`- and `Name`-based and carry no Java
 //! concepts — where Kotlin needs an attribute they lack (the variance of a
 //! type parameter) it declares its own [`KotlinTypeParam`].
 

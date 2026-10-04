@@ -12,13 +12,13 @@ use std::{
 
 use anyhow::Context as _;
 use camino::Utf8Path;
-use jimage_rs::JImage;
-use lasso::ThreadedRodeo;
-use rayon::prelude::*;
-use syntax::{
+use classfile::{
     class_parser::ClassParser,
     stub::{ClassOrModuleStub, Symbol, TypeRef as SyntaxTypeRef},
 };
+use jimage_rs::JImage;
+use lasso::ThreadedRodeo;
+use rayon::prelude::*;
 use triomphe::Arc;
 use zip::ZipArchive;
 

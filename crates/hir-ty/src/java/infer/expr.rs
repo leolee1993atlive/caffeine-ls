@@ -3,13 +3,13 @@
 //! unary/binary operators, invocations, `new` expressions, lambdas and
 //! method references — plus the write-vs-read context flags.
 
+use classfile::stub::{PrimitiveType, TypeRef};
 use hir_expand::{
     body::{AssignOp, ExprData, ExprId, Literal, StmtData, SwitchLabel},
     name::Name,
 };
 use rustc_hash::FxHashMap;
 use stacksafe::stacksafe;
-use syntax::stub::{PrimitiveType, TypeRef};
 
 use crate::java::{
     diagnostics::{DiagLocation, NonStaticThisKind, TypeError},
@@ -1208,8 +1208,8 @@ impl InferCtx<'_> {
         let hir::ClassOrModuleStub::Class(class) = record.as_ref() else {
             return false;
         };
-        syntax::stub::ClassKind::from_flags(class.flags, class.is_record)
-            == syntax::stub::ClassKind::Enum
+        classfile::stub::ClassKind::from_flags(class.flags, class.is_record)
+            == classfile::stub::ClassKind::Enum
     }
 
     /// §15.26.2: whether the binary expression `lhs op rhs` the compound

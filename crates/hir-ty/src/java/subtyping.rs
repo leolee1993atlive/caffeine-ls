@@ -29,8 +29,8 @@
 //! via the §4.5.1 contains relation) are modelled for assignment conversion
 //! and parameterized-type arguments.
 
+use classfile::stub::{PrimitiveType, TypeRef};
 use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::stub::{PrimitiveType, TypeRef};
 
 use hir_def::java::item_tree::{ItemData, TypeParam};
 use hir_def::jvm::access::JvmAccessFlags;
@@ -338,7 +338,7 @@ pub(crate) fn enum_constants(
         hir::Resolved::Facade { .. } => None,
         hir::Resolved::Library(library) => {
             let record = hir::class_record(db, &library)?;
-            let syntax::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
+            let classfile::stub::ClassOrModuleStub::Class(class) = record.as_ref() else {
                 return None;
             };
             // JVMS §4.6: enum constants carry the ACC_ENUM flag.

@@ -1,6 +1,6 @@
 //! Source spans of lowered type references.
 //!
-//! The shared [`TypeRef`] stub ([`syntax::stub`]) also backs library class
+//! The shared [`TypeRef`] stub ([`classfile::stub`]) also backs library class
 //! files, which have no source positions, so it cannot carry ranges. On the
 //! *source* side — where a type reference was lowered from a syntactic
 //! `TYPE` node — we keep the [`TypeRef<Name>`] together with the source range
@@ -9,8 +9,8 @@
 //! the spans let diagnostics ([JLS §6.5.5](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.5.5))
 //! point at the exact occurrence of an unknown type.
 
+use classfile::stub::TypeRef;
 use rowan::TextRange;
-use syntax::stub::TypeRef;
 
 use crate::body::{ExprId, Literal};
 use crate::name::Name;

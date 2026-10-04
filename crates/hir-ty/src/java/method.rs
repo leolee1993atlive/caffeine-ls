@@ -602,12 +602,12 @@ pub(crate) fn source_class_methods(
             (
                 "equals",
                 vec![object_ty],
-                Ty::primitive(db, syntax::stub::PrimitiveType::Boolean),
+                Ty::primitive(db, classfile::stub::PrimitiveType::Boolean),
             ),
             (
                 "hashCode",
                 Vec::new(),
-                Ty::primitive(db, syntax::stub::PrimitiveType::Int),
+                Ty::primitive(db, classfile::stub::PrimitiveType::Int),
             ),
             ("toString", Vec::new(), string_ty),
         ];
@@ -918,12 +918,12 @@ pub(crate) fn self_type_param_indexes(
         hir::Resolved::Source(_) | hir::Resolved::Facade { .. } => return Some(Vec::new()),
     };
     fn mention(
-        bound: &syntax::stub::TypeRef<hir::Symbol>,
+        bound: &classfile::stub::TypeRef<hir::Symbol>,
         self_fqn: &str,
         interner: &dyn hir::HirDatabase,
     ) -> bool {
         match bound {
-            syntax::stub::TypeRef::Reference { name, generic_args } => {
+            classfile::stub::TypeRef::Reference { name, generic_args } => {
                 interner.hir_state().interner.resolve(name) == self_fqn
                     || generic_args
                         .iter()

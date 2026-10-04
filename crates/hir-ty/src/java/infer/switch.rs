@@ -3,6 +3,7 @@
 //! the reifiable/raw-type and checked-exception helpers the surrounding
 //! checks share.
 
+use classfile::stub::{PrimitiveType, TypeRef};
 use hir_expand::{
     body::{
         ExprData, ExprId, LocalId, PatternData, PatternId, StmtData, StmtId, SwitchArm, SwitchLabel,
@@ -11,7 +12,6 @@ use hir_expand::{
     span::SpannedTypeRef,
 };
 use rustc_hash::FxHashSet;
-use syntax::stub::{PrimitiveType, TypeRef};
 
 use crate::java::{
     const_eval::{Const, ConstEnv},

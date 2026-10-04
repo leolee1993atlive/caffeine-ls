@@ -3,9 +3,9 @@
 //! the diamond type-argument inference from the target or constructor
 //! arguments.
 
+use classfile::stub::TypeRef;
 use hir_expand::{body::ExprId, name::Name, span::SpannedTypeRef};
 use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::stub::TypeRef;
 
 use crate::java::{
     diagnostics::{DiagLocation, TypeError},

@@ -4,9 +4,9 @@
 #[macro_use]
 mod common;
 
+use classfile::stub::{PrimitiveType, TypeBound, TypeRef};
 use hir_expand::name::Name;
 use hir_ty::{BoundKind, Ty, WildcardBound, ty_from_source};
-use syntax::stub::{PrimitiveType, TypeBound, TypeRef};
 
 use crate::common::{TestDatabase, check_ty_model, check_ty_simple};
 

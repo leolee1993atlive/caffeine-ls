@@ -3,15 +3,15 @@
 //!
 //! A type reference with the names it mentions, a formal parameter and an
 //! annotation application are what the Java and Kotlin declaration models have
-//! in common: `syntax::stub`- and `Name`-based shapes carrying no language
+//! in common: `classfile::stub`- and `Name`-based shapes carrying no language
 //! concept, which each language's lowering constructs from its own CST —
 //! Kotlin's directly, Java's through the source-spanned conversions that live
 //! with the Java walker ([`ItemTypeRef::from_spanned`]).
 //! Keeping them here is what lets a language-agnostic consumer read a
 //! declaration of any language without knowing which language lowered it.
 
+use classfile::stub::TypeRef;
 use hir_expand::{ast_id_map::FileAstId, name::Name};
-use syntax::stub::TypeRef;
 
 /// The syntax-node id of a type reference ([`ItemTypeRef::node`]).
 pub struct TypeNode;

@@ -41,7 +41,7 @@ fn throws_samples() -> Vec<(&'static str, TyBuilder, &'static str, Vec<TyBuilder
             util as TyBuilder,
             "throwChecked",
             vec![
-                |db| Ty::primitive(db, syntax::stub::PrimitiveType::Boolean),
+                |db| Ty::primitive(db, classfile::stub::PrimitiveType::Boolean),
                 |db| r(db, "java.lang.Exception"),
             ],
         ),
@@ -50,7 +50,7 @@ fn throws_samples() -> Vec<(&'static str, TyBuilder, &'static str, Vec<TyBuilder
             util as TyBuilder,
             "throwChecked",
             vec![
-                |db| Ty::primitive(db, syntax::stub::PrimitiveType::Boolean),
+                |db| Ty::primitive(db, classfile::stub::PrimitiveType::Boolean),
                 |db| r(db, "java.io.IOException"),
             ],
         ),
@@ -59,7 +59,7 @@ fn throws_samples() -> Vec<(&'static str, TyBuilder, &'static str, Vec<TyBuilder
             util as TyBuilder,
             "throwChecked",
             vec![
-                |db| Ty::primitive(db, syntax::stub::PrimitiveType::Boolean),
+                |db| Ty::primitive(db, classfile::stub::PrimitiveType::Boolean),
                 |db| r(db, "java.lang.RuntimeException"),
             ],
         ),

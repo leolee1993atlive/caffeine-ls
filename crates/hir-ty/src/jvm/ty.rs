@@ -4,7 +4,7 @@
 //! [§5.1.8](https://docs.oracle.com/javase/specs/jls/se26/html/jls-5.html#jls-5.1.8),
 //! [§5.6.2](https://docs.oracle.com/javase/specs/jls/se26/html/jls-5.html#jls-5.6.2)).
 
-use syntax::stub::PrimitiveType;
+use classfile::stub::PrimitiveType;
 
 /// The display name of a primitive type.
 pub fn primitive_name(p: PrimitiveType) -> &'static str {

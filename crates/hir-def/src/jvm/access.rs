@@ -10,7 +10,7 @@
 //! [§4.5]: https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.5
 //! [§4.6]: https://docs.oracle.com/javase/specs/jvms/se26/html/jvms-4.html#jvms-4.6
 
-use syntax::stub::ClassKind;
+use classfile::stub::ClassKind;
 
 pub use rust_asm::constants::JvmAccessFlags;
 
@@ -59,7 +59,7 @@ impl JvmVisibility {
 /// Classifies a type by its JVM access flags and the presence of a `Record`
 /// attribute. Records carry no distinguishing access flag ([JVMS §4.1]), so
 /// `is_record` disambiguates them from plain classes. Mirrors
-/// [`syntax::stub::ClassKind::from_flags`], which stays authoritative for the
+/// [`classfile::stub::ClassKind::from_flags`], which stays authoritative for the
 /// classfile reader.
 pub fn class_kind_from_flags(flags: JvmAccessFlags, is_record: bool) -> ClassKind {
     if flags.contains(JvmAccessFlags::INTERFACE) {

@@ -8,8 +8,8 @@
 #[macro_use]
 mod common;
 
+use classfile::stub::PrimitiveType;
 use hir_ty::Ty;
-use syntax::stub::PrimitiveType;
 
 use crate::common::{
     ClassSpec, DeprecationSpec, TestDatabase, TyBuilder, check_body_types, check_source_methods_ctx,

@@ -14,9 +14,9 @@
 //!
 //! Every production cites its KLS rule.
 
+use classfile::stub::{TypeBound, TypeRef};
 use rowan::{NodeOrToken, SyntaxNode, SyntaxToken, TextRange};
 use syntax::kotlin::{Lang, SyntaxKind as K};
-use syntax::stub::{TypeBound, TypeRef};
 
 use base_db::LanguageKind;
 use hir_expand::{ast_id_map::FileAstId, body::ExprData, name::Name};

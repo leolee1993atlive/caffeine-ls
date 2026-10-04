@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 base-db.workspace = true
 bitflags.workspace = true
+classfile.workspace = true
 hir-expand.workspace = true
 java-syntax.workspace = true
 kotlin-syntax.workspace = true

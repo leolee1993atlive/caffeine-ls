@@ -7,9 +7,9 @@
 //! renderer resolves from the file's [`AstIdMap`] — the item tree itself
 //! carries no offsets.
 
+use classfile::stub::{TypeBound, TypeRef};
 use rowan::TextRange;
 use syntax::SourceFile;
-use syntax::stub::{TypeBound, TypeRef};
 
 use hir_expand::{
     ast_id_map::AstIdMap,

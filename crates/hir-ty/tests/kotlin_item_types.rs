@@ -1205,7 +1205,7 @@ mod interop_types {
         assert_eq!(
             hir_ty::display_kotlin(
                 &db,
-                ty_from_java(&db, Ty::primitive(&db, syntax::stub::PrimitiveType::Int))
+                ty_from_java(&db, Ty::primitive(&db, classfile::stub::PrimitiveType::Int))
             )
             .to_string(),
             "Int",

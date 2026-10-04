@@ -2789,10 +2789,10 @@ fn resolve_local(bodies: &BodyTree, name: &str, offset: TextSize) -> Option<Loca
 
 /// The plain (possibly qualified) type name of a `TypeRef`, descending
 /// through array dimensions.
-fn type_ref_name(tyref: &syntax::stub::TypeRef<hir_expand::name::Name>) -> Option<String> {
+fn type_ref_name(tyref: &classfile::stub::TypeRef<hir_expand::name::Name>) -> Option<String> {
     match tyref {
-        syntax::stub::TypeRef::Reference { name, .. } => Some(name.as_str().to_owned()),
-        syntax::stub::TypeRef::Array(inner) => type_ref_name(inner),
+        classfile::stub::TypeRef::Reference { name, .. } => Some(name.as_str().to_owned()),
+        classfile::stub::TypeRef::Array(inner) => type_ref_name(inner),
         _ => None,
     }
 }

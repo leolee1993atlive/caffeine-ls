@@ -12,10 +12,10 @@
 use std::iter::Peekable;
 use std::str::Chars;
 
+use classfile::stub::{PrimitiveType, TypeBound, TypeRef};
 use java_syntax::{Lang, SyntaxKind as J, translate_unicode_escapes};
 use rowan::{NodeOrToken, SyntaxNode, SyntaxToken, TextRange};
 use stacksafe::stacksafe;
-use syntax::stub::{PrimitiveType, TypeBound, TypeRef};
 
 use hir_expand::{
     body::{

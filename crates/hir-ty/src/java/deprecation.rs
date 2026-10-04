@@ -28,11 +28,11 @@
 //! disabled-means-error, the classfile `0xFFFF` minor version) is a distinct
 //! one.
 
+use classfile::stub::PrimitiveValue;
 use hir_def::java::item_tree::{ItemData, ItemId};
 use hir_def::jvm::decl::{ItemAnnotationRef, ItemAnnotationValue};
 use hir_expand::body::Literal;
 use hir_expand::name::Name;
-use syntax::stub::PrimitiveValue;
 use vfs::FileId;
 
 use crate::java::resolve::{

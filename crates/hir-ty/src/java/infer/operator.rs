@@ -2,8 +2,8 @@
 //! numeric promotion, binary numeric promotion, the conditional type of
 //! [§15.25], and the source symbols used in [`TypeError::IncompatibleOperand`].
 
+use classfile::stub::PrimitiveType;
 use hir_expand::body::{BinaryOp, ExprId, UnaryOp};
-use syntax::stub::PrimitiveType;
 
 use crate::java::{
     diagnostics::TypeError,

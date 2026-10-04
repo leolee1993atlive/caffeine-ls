@@ -27,7 +27,7 @@
 //! * [`java::resolve`] — source name resolution
 //!   ([JLS §6.5](https://docs.oracle.com/javase/specs/jls/se26/html/jls-6.html#jls-6.5),
 //!   [§7.5](https://docs.oracle.com/javase/specs/jls/se26/html/jls-7.html#jls-7.5)) over a
-//!   [`Resolver`], turning `syntax::stub::TypeRef<Name>`s into [`Ty`]s.
+//!   [`Resolver`], turning `classfile::stub::TypeRef<Name>`s into [`Ty`]s.
 //! * [`java::subtyping`] — [`is_subtype`], [`is_assignable`] and the supertype walk.
 //! * [`java::method`] — the member set, access control, field resolution and the
 //!   applicability phases of method resolution ([§15.12](https://docs.oracle.com/javase/specs/jls/se26/html/jls-15.html#jls-15.12)).

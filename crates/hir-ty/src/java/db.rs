@@ -15,10 +15,10 @@
 use triomphe::Arc;
 
 use base_db::{FileText, salsa};
+use classfile::stub::TypeRef;
 use hir_def::java::item_tree::{ItemData, ItemId};
 use hir_expand::name::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
-use syntax::stub::TypeRef;
 use vfs::FileId;
 
 use crate::{
