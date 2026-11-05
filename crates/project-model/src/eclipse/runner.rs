@@ -75,6 +75,9 @@ pub fn build_graph_from_eclipse(
     let mut test_roots: Vec<AbsPathBuf> = Vec::new();
     let mut main_compile_classpath = Vec::new();
     let mut java_version = String::from("17");
+    // `.classpath` reports one output directory for the whole project; both
+    // source sets share it.
+    let mut output_dir: Option<PathBuf> = None;
 
     for entry in &classpath.entries {
         if entry.kind == "con"
@@ -129,6 +132,9 @@ pub fn build_graph_from_eclipse(
                     }
                 }
             }
+            "output" => {
+                output_dir = Some(workspace_root.join(&entry.path));
+            }
             "lib" => {
                 let jar_path = PathBuf::from(&entry.path);
                 let target_path = if jar_path.is_absolute() {
@@ -173,6 +179,9 @@ pub fn build_graph_from_eclipse(
         generated_source_roots: Vec::new(),
         compile_classpath: main_compile_classpath.clone(),
         runtime_classpath: main_compile_classpath,
+        mirror_dir: output_dir
+            .as_ref()
+            .map(|p| AbsPathBuf::assert_utf8(p.clone())),
     };
 
     let test_source_set = SourceSetData {
@@ -181,6 +190,9 @@ pub fn build_graph_from_eclipse(
         generated_source_roots: Vec::new(),
         compile_classpath: test_compile_classpath.clone(),
         runtime_classpath: test_compile_classpath,
+        mirror_dir: output_dir
+            .as_ref()
+            .map(|p| AbsPathBuf::assert_utf8(p.clone())),
     };
 
     let mut source_sets = FxHashMap::default();

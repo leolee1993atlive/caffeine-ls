@@ -202,6 +202,11 @@ pub struct SourceSetData {
     /// The full classpath required to run this source set (corresponds to Gradle's `runtimeClasspath` / Maven's `runtime`).
     /// Used to support LSP-initiated actions like Debug/Run tests.
     pub runtime_classpath: Vec<ClasspathEntry>,
+
+    /// The build tool's compile output directory for this source set
+    /// (`target/classes`, `bin/`). When present and fresh, it is registered
+    /// as the bytecode mirror library for annotation-processor fallback.
+    pub mirror_dir: Option<AbsPathBuf>,
 }
 
 /// Represents a specific Maven/Gradle module.
@@ -301,6 +306,7 @@ impl WorkspaceGraph {
                     generated_source_roots: Vec::new(),
                     compile_classpath: Vec::new(),
                     runtime_classpath: Vec::new(),
+                    mirror_dir: None,
                 },
             )]),
         };

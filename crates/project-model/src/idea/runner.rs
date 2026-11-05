@@ -343,6 +343,7 @@ pub fn build_graph_from_idea(
             generated_source_roots: generated_roots,
             compile_classpath: main_classpath.clone(),
             runtime_classpath: main_classpath,
+            mirror_dir: None,
         };
 
         let test_source_set = SourceSetData {
@@ -351,6 +352,7 @@ pub fn build_graph_from_idea(
             generated_source_roots: Vec::new(),
             compile_classpath: test_classpath.clone(),
             runtime_classpath: test_classpath,
+            mirror_dir: None,
         };
 
         let mut source_sets = FxHashMap::default();

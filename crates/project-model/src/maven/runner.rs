@@ -197,6 +197,18 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
         // view, so a `maven.compiler.source` alone leaves this unset.
         let release = project.java_release;
 
+        // The compile output directories the sidecar exported for this module.
+        // They feed the bytecode mirror fallback (annotation-processor output
+        // that was never indexed as a source root).
+        let main_output_dir = project
+            .output_dir
+            .as_ref()
+            .map(|p| AbsPathBuf::assert_utf8(p.clone()));
+        let test_output_dir = project
+            .test_output_dir
+            .as_ref()
+            .map(|p| AbsPathBuf::assert_utf8(p.clone()));
+
         let resolved_java_home = project
             .java_home
             .map(|path_str| AbsPathBuf::assert_utf8(PathBuf::from(path_str)))
@@ -328,6 +340,7 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
                 generated_source_roots: Vec::new(),
                 compile_classpath: main_compile_classpath.clone(),
                 runtime_classpath: main_compile_classpath.clone(),
+                mirror_dir: None,
             })
         };
 
@@ -347,6 +360,7 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
             generated_source_roots: main_generated_roots,
             compile_classpath: main_compile_classpath.clone(),
             runtime_classpath: main_compile_classpath,
+            mirror_dir: main_output_dir,
         };
 
         let test_source_set = SourceSetData {
@@ -355,6 +369,7 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
             generated_source_roots: Vec::new(),
             compile_classpath: test_compile_classpath.clone(),
             runtime_classpath: test_compile_classpath,
+            mirror_dir: test_output_dir,
         };
 
         let mut source_sets = FxHashMap::default();
@@ -378,4 +393,79 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
     }
 
     graph
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn export(extra: &str) -> MavenWorkspace {
+        let json = format!(
+            r#"{{
+              "workspace_name": "app",
+              "projects": [
+                {{
+                  "path": ":app",
+                  "name": "app",
+                  "project_dir": "C:/w/app",
+                  {extra}
+                  "source_roots": [],
+                  "test_roots": [],
+                  "resource_roots": [],
+                  "generated_roots": [],
+                  "compile_classpath": [],
+                  "test_classpath": [],
+                  "java_language_version": null,
+                  "java_release": null,
+                  "java_language_preview": null,
+                  "java_home": "C:/jdk"
+                }}
+              ]
+            }}"#
+        );
+        serde_json::from_str(&json).expect("the export deserializes")
+    }
+
+    fn mirror_dirs(graph: &WorkspaceGraph) -> (Option<AbsPathBuf>, Option<AbsPathBuf>) {
+        let project = &graph.projects[&ProjectId(0)];
+        (
+            project.source_sets[&SourceSetKind::Main].mirror_dir.clone(),
+            project.source_sets[&SourceSetKind::Test].mirror_dir.clone(),
+        )
+    }
+
+    /// The Maven export's output directories land on the matching source sets;
+    /// the synthetic `scripts` set never gets one.
+    #[test]
+    fn maven_output_dirs_become_source_set_mirror_dirs() {
+        let graph = build_graph_from_maven_json(export(
+            r#""output_dir": "C:/w/app/target/classes",
+               "test_output_dir": "C:/w/app/target/test-classes","#,
+        ));
+
+        assert_eq!(
+            mirror_dirs(&graph),
+            (
+                Some(AbsPathBuf::assert_utf8(PathBuf::from(
+                    "C:/w/app/target/classes"
+                ))),
+                Some(AbsPathBuf::assert_utf8(PathBuf::from(
+                    "C:/w/app/target/test-classes"
+                ))),
+            )
+        );
+        assert_eq!(
+            graph.projects[&ProjectId(0)].source_sets
+                [&SourceSetKind::Custom(SmolStr::from("scripts"))]
+                .mirror_dir,
+            None
+        );
+    }
+
+    /// Sidecars that predate the export leave every mirror directory empty.
+    #[test]
+    fn maven_output_dirs_absent_leave_mirror_dirs_empty() {
+        let graph = build_graph_from_maven_json(export(""));
+        assert_eq!(mirror_dirs(&graph), (None, None));
+    }
 }
