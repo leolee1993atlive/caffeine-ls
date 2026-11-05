@@ -24,6 +24,22 @@ cfg_if::cfg_if! {
 fn main() -> ExitCode {
     let flags = Flags::parse();
 
+    std::panic::set_hook(Box::new(|info| {
+        use std::io::Write as _;
+        let msg = format!(
+            "{info}\n{:?}\n",
+            std::backtrace::Backtrace::force_capture()
+        );
+        eprintln!("CAFFEINE-PANIC: {msg}");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(r"D:\code\myproject\rust_idea\caffeine-panic.log")
+        {
+            let _ = f.write_all(msg.as_bytes());
+        }
+    }));
+
     #[cfg(debug_assertions)]
     if flags.wait_dbg {
         wait_for_debugger();
