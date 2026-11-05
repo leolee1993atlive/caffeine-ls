@@ -1394,6 +1394,11 @@ impl GlobalState {
         // Bytecode mirrors: each source set's own compile output, indexed as
         // a ClassDir library and kept off the regular classpath — resolution
         // consults it only as an annotation-processor fallback.
+        //
+        // This runs while the workspace graph is (re)built, so the index and
+        // its registration are load-time state: an external rebuild is only
+        // picked up by a workspace reload (see hir-ty's
+        // `fresh_mirror_library`, which applies the per-source freshness gate).
         for project in graph.projects.values() {
             for source_set in project.source_sets.values() {
                 let Some(mirror_dir) = &source_set.mirror_dir else {

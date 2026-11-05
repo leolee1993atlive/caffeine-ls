@@ -37,22 +37,30 @@ pre-processing form (no generated sources required).
   compiled has no mirror to read.
 - **A stale or missing mirror disables the member fallback** (nothing is
   invented): if the source file is newer than its `.class`, or the class file is
-  absent, source members resolve as before. Rebuild after changing sources to
-  re-enable it.
+  absent, source members resolve as before. The mirror's contents and its
+  registration are captured when the workspace is loaded, so after an external
+  rebuild the server may need a workspace reload to pick up new classes; the
+  mtime check only suppresses a mirror older than its source.
 - **Mirror-only types are trusted without a source counterpart** (for example
   `Person$PersonBuilder`): they exist only in the mirror and are resolved only
   after source and classpath misses, so they cannot shadow a source type. A
-  stale mirror can keep such a type visible until the next successful rebuild.
+  mirror-only type can survive an incremental build after its source is renamed
+  or deleted, until a clean build (e.g. `mvn clean`) removes the stale
+  `.class`.
 - **Generic signatures may lose some detail.** The mirror is a classfile stub;
   exotic generic `@Builder` chains can retain less type information than a
   source-level expansion would.
 - **Maven and Eclipse only for now.** Gradle and IDEA source sets currently
   register no mirror (`mirror_dir` is `None`), so the fallback is inert there.
 - **The sidecar plugin version must be bumped whenever its Java sources change**
-  (currently `0.1.1`, `crates/project-model/src/maven/sidecar.rs`). Maven
-  prefers an existing GAV in `~/.m2` over the embedded plugin repository, so
-  reusing a version leaves a stale mojo in place and silently disables the
-  mirror.
+  (currently `0.1.1`). The version is declared in three places that must be
+  bumped together: `SIDECAR_VERSION` in
+  `crates/project-model/src/maven/sidecar.rs`, `version =` in
+  `crates/project-model/src/maven/sidecar/build.gradle.kts`, and `<version>` in
+  `crates/project-model/src/maven/sidecar/src/main/resources/META-INF/maven/plugin.xml`
+  (a test in `sidecar.rs` enforces the match). Maven prefers an existing GAV in
+  `~/.m2` over the embedded plugin repository, so reusing a version leaves a
+  stale mojo in place and silently disables the mirror.
 - **JDK 8 `jce.jar` / `javax.crypto` gap** is a known pre-existing issue,
   unrelated to this feature (it is not fixed here).
 
@@ -68,16 +76,17 @@ pre-processing form (no generated sources required).
 
 **Two of three projects clear the 95% bar; `medical-dispute-platform` (mdp) does
 not, and this README does not claim it does.** The mdp shortfall is dominated by
-genuinely missing third-party types, not by mirror gaps: 2995 of its 3111
-remaining resolve errors are in `jeecg-server-cloud`, whose Spring / xxl-job /
-Sentinel / slf4j imports are not present in the workspace or its classpath
-(`doesnt.exist` stays unchanged at 843). The mirror cannot create a type that
-was never compiled anywhere.
+missing third-party types (530 Lombok-pattern names remain, a 90.9% reduction):
+2995 of its 3111 remaining resolve errors are in `jeecg-server-cloud`, whose
+Spring / xxl-job / Sentinel / slf4j imports are not present in the workspace or
+its classpath (`doesnt.exist` stays unchanged at 843). The mirror cannot create
+a type that was never compiled anywhere.
 
 ## Regression guarantees
 
-- `../demo-bad`: **21 diagnostics, unchanged** — the documented 16-site javac
-  baseline plus JDT's cascaded messages, identical to the pre-feature output.
+- `../demo-bad`: **21 diagnostics, unchanged** — the same 21-diagnostic LSP set
+  as the pre-feature output (javac itself reports 18 errors: 17 attribution + 1
+  parse; the LSP set also includes JDT's cascaded messages).
 - `../demo-good`: **clean** (`summary: no diagnostics`).
 - Offline fixture tests in `crates/caffeine-ls/tests/mirror_fallback.rs`:
   a fresh mirror resolves Lombok-style members/types cleanly, and a stale mirror

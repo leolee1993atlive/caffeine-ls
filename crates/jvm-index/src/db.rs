@@ -710,7 +710,10 @@ pub(crate) fn fqn_resolve_query(
     // classpath so it never shadows source declarations. No mtime gate is
     // needed here: reaching this point *is* the "the type exists nowhere
     // source-side" condition, so a stale mirror can only answer types that
-    // would otherwise be unresolved.
+    // would otherwise be unresolved. That also means a mirror-only type can
+    // survive an incremental build after its source is renamed or deleted,
+    // until a clean build removes the stale `.class` (the index is rebuilt on
+    // workspace reload).
     if let Some(mirror) = graph.mirror_libraries(db).get(&source_set)
         && let Some(resolved) = resolve_in_libraries(db, std::slice::from_ref(mirror), fqn.as_str())
     {

@@ -228,7 +228,9 @@ pub(crate) fn decompilable_libraries(graph: &WorkspaceGraph) -> Vec<LibraryId> {
 }
 
 /// The classfile bytes of `class_path` (a binary path such as
-/// `com/example/Foo.class`) out of a jar or a JDK jimage.
+/// `com/example/Foo.class`) out of a jar or a JDK jimage. Class directories
+/// (`LibraryKind::ClassDir`) are read here too, but that kind is not currently
+/// wired into decompilation: callers pass jar and jimage archives.
 pub(crate) fn read_class_bytes(
     archive: &Path,
     kind: LibraryKind,
