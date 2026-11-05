@@ -156,7 +156,18 @@ fn analyze(
 
     let max_rank = args.min_severity.max_rank();
     let mut report = report::DiagnosticReport::default();
-    let by_uri = pull_workspace(server)?;
+    let by_uri = match pull_workspace(server) {
+        Ok(by_uri) => by_uri,
+        Err(workspace_err) => {
+            // A single poisoned/panicking file must not sink the whole run:
+            // fall back to pulling diagnostics file by file.
+            tracing::warn!(
+                "workspace diagnostics pull failed ({workspace_err:#}); \
+                 falling back to per-file pulls"
+            );
+            pull_per_file(server, files)
+        }
+    };
 
     for file in files {
         let uri: Uri = Uri::from_file_path(file)
@@ -214,8 +225,34 @@ fn pull_workspace(server: &HeadlessServer) -> anyhow::Result<WorkspaceReport> {
         let Some(result) = response.result else {
             anyhow::bail!("empty workspace diagnostic report");
         };
-        let report: WorkspaceDiagnosticReport = serde_json::from_value(result)
-            .map_err(|e| anyhow::format_err!("invalid workspace diagnostic report: {e}"))?;
+        // The server serializes a ResponseError (e.g. ContentModified after an
+        // internal panic or a poisoned salsa memo) into the *result* field;
+        // detect that shape and treat it as a retryable failure.
+        if result.get("items").is_none()
+            && let (Some(code), Some(message)) = (result.get("code"), result.get("message"))
+        {
+            last_error = format!("server returned error-shaped result: {code} {message}");
+            tracing::debug!(
+                attempt,
+                "workspace diagnostics pull failed, retrying: {last_error}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(500 * (attempt as u64 + 1)));
+            continue;
+        }
+        let report: WorkspaceDiagnosticReport = match serde_json::from_value(result.clone()) {
+            Ok(report) => report,
+            Err(e) => {
+                let dump = std::env::temp_dir().join("caffeine-ws-report-raw.json");
+                let _ = std::fs::write(
+                    &dump,
+                    serde_json::to_string_pretty(&result).unwrap_or_default(),
+                );
+                anyhow::bail!(
+                    "invalid workspace diagnostic report: {e} (raw report dumped to {})",
+                    dump.display()
+                );
+            }
+        };
 
         let mut by_uri = HashMap::with_capacity(report.items.len());
         for item in report.items {
@@ -238,6 +275,38 @@ fn pull_workspace(server: &HeadlessServer) -> anyhow::Result<WorkspaceReport> {
     }
 
     anyhow::bail!("failed to pull workspace diagnostics: {last_error}")
+}
+
+/// Fallback when the workspace-wide pull fails: request each file's
+/// diagnostics individually, so one bad file only costs its own entry.
+fn pull_per_file(server: &HeadlessServer, files: &[PathBuf]) -> WorkspaceReport {
+    let mut by_uri = HashMap::new();
+    for file in files {
+        let Ok(uri) = Uri::from_file_path(file) else {
+            continue;
+        };
+        let params = serde_json::json!({
+            "textDocument": { "uri": uri },
+            "identifier": crate::NAME,
+            "previousResultId": null,
+        });
+        let Ok(response) = server.request("textDocument/diagnostic", params) else {
+            continue;
+        };
+        if response.error.is_some() {
+            continue;
+        }
+        let Some(result) = response.result else {
+            continue;
+        };
+        let items = result
+            .get("items")
+            .and_then(|items| serde_json::from_value::<Vec<lsp_types::Diagnostic>>(items.clone()).ok());
+        if let Some(items) = items {
+            by_uri.insert(uri, items);
+        }
+    }
+    by_uri
 }
 
 /// Surfaces messages the server sent via `window/showMessage` with severity
