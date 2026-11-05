@@ -281,8 +281,14 @@ fn pull_workspace(server: &HeadlessServer) -> anyhow::Result<WorkspaceReport> {
 /// diagnostics individually, so one bad file only costs its own entry.
 fn pull_per_file(server: &HeadlessServer, files: &[PathBuf]) -> WorkspaceReport {
     let mut by_uri = HashMap::new();
+    let mut failed = 0usize;
     for file in files {
         let Ok(uri) = Uri::from_file_path(file) else {
+            failed += 1;
+            tracing::warn!(
+                path = %file.display(),
+                "per-file diagnostics pull failed: cannot convert path to URI"
+            );
             continue;
         };
         let params = serde_json::json!({
@@ -290,21 +296,67 @@ fn pull_per_file(server: &HeadlessServer, files: &[PathBuf]) -> WorkspaceReport 
             "identifier": crate::NAME,
             "previousResultId": null,
         });
-        let Ok(response) = server.request("textDocument/diagnostic", params) else {
-            continue;
+        let response = match server.request("textDocument/diagnostic", params) {
+            Ok(response) => response,
+            Err(e) => {
+                failed += 1;
+                tracing::warn!(
+                    uri = uri.as_str(),
+                    "per-file diagnostics pull failed: request error: {e:#}"
+                );
+                continue;
+            }
         };
-        if response.error.is_some() {
+        if let Some(err) = response.error {
+            failed += 1;
+            tracing::warn!(
+                uri = uri.as_str(),
+                code = err.code,
+                "per-file diagnostics pull failed: server error: {}",
+                err.message
+            );
             continue;
         }
         let Some(result) = response.result else {
+            failed += 1;
+            tracing::warn!(
+                uri = uri.as_str(),
+                "per-file diagnostics pull failed: empty response result"
+            );
             continue;
         };
-        let items = result
-            .get("items")
-            .and_then(|items| serde_json::from_value::<Vec<lsp_types::Diagnostic>>(items.clone()).ok());
+        let items = match result.get("items") {
+            Some(items) => {
+                match serde_json::from_value::<Vec<lsp_types::Diagnostic>>(items.clone()) {
+                    Ok(items) => Some(items),
+                    Err(e) => {
+                        failed += 1;
+                        tracing::warn!(
+                            uri = uri.as_str(),
+                            "per-file diagnostics pull failed: malformed items: {e}"
+                        );
+                        None
+                    }
+                }
+            }
+            None => {
+                failed += 1;
+                tracing::warn!(
+                    uri = uri.as_str(),
+                    "per-file diagnostics pull failed: response has no items field"
+                );
+                None
+            }
+        };
         if let Some(items) = items {
             by_uri.insert(uri, items);
         }
+    }
+    if failed > 0 {
+        tracing::warn!(
+            "per-file diagnostics fallback: {failed} of {} files failed to pull",
+            files.len()
+        );
     }
     by_uri
 }
