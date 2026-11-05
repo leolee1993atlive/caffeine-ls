@@ -28,6 +28,10 @@ pub fn import_maven_workspace(
 
     let maven_cmd = if mvnw_path.exists() {
         mvnw_path.to_string_lossy().into_owned()
+    } else if cfg!(windows) {
+        // CreateProcess does not resolve PATHEXT; "mvn" alone is not found
+        // when only mvn.cmd exists on PATH.
+        "mvn.cmd".to_string()
     } else {
         "mvn".to_string()
     };
