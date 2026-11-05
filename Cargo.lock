@@ -1485,6 +1485,7 @@ dependencies = [
  "tracing",
  "triomphe",
  "unicode-general-category",
+ "walkdir",
  "xxhash-rust",
  "zip",
 ]

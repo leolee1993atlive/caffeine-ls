@@ -30,6 +30,7 @@ tracing.workspace = true
 triomphe.workspace = true
 unicode-general-category.workspace = true
 vfs.workspace = true
+walkdir.workspace = true
 xxhash-rust.workspace = true
 zip.workspace = true
 

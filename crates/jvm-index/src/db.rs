@@ -41,12 +41,19 @@ use crate::{
 use project_model::JavaLanguageLevel;
 pub use project_model::LibraryId;
 
-/// Identifies a library archive (jar or JDK jimage). Hashed from the path
-/// and mtime, so content changes produce a new id and invalidate the cache.
+/// Identifies a library archive (jar or JDK jimage) or a build tool's class
+/// output directory. Hashed from the path and mtime, or for directories from
+/// the path and a cheap content fingerprint, so content changes produce a new
+/// id and invalidate the cache.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LibraryKind {
     Jar,
     Jimage,
+    /// A build tool's output directory of `.class` files, indexed exactly like
+    /// a jar (see [`crate::loader::parse_classdir`]). Its id comes from
+    /// [`crate::loader::classdir_library_id`], not `LibraryId::from_file_path`:
+    /// a directory's mtime does not move when a child class is rewritten.
+    ClassDir,
 }
 
 /// The classpath-aware workspace model: every source set's ordered classpath

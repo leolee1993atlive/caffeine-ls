@@ -248,6 +248,10 @@ pub(crate) fn read_class_bytes(
             Ok(bytes)
         }
         LibraryKind::Jimage => read_jimage_class(archive, class_path),
+        LibraryKind::ClassDir => {
+            let path = archive.join(class_path);
+            std::fs::read(&path).with_context(|| format!("failed to read {}", path.display()))
+        }
     }
 }
 

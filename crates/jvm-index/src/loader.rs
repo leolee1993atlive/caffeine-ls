@@ -3,7 +3,9 @@
 
 use std::{
     fs::File,
+    hash::{Hash as _, Hasher as _},
     io::Read as _,
+    path::Path,
     sync::{
         LazyLock,
         atomic::{AtomicUsize, Ordering},
@@ -102,6 +104,16 @@ impl StubRecord {
     }
 }
 
+/// Parses one class file's bytes into a stub record, or `None` when the
+/// classfile is malformed. Shared by jars, jimages and class directories so all
+/// three index entries through the same `ClassParser` → `StubRecord` path.
+fn parse_class_bytes(bytes: &[u8], interner: &ThreadedRodeo) -> Option<StubRecord> {
+    ClassParser::new(interner)
+        .parse_cafebabe(bytes)
+        .ok()
+        .map(|stub| StubRecord::new(interner, stub))
+}
+
 /// Parses all classes of a jar archive. The zip file is read sequentially
 /// (its API requires `&mut self`), the class files are then parsed in
 /// parallel.
@@ -140,9 +152,9 @@ pub fn parse_jar(
         cancel_check();
         on_parse_pool(|| {
             records.par_extend(chunk.into_par_iter().filter_map(|bytes| {
-                match ClassParser::new(interner).parse_cafebabe(bytes) {
-                    Ok(stub) => Some(StubRecord::new(interner, stub)),
-                    Err(_) => {
+                match parse_class_bytes(bytes, interner) {
+                    Some(record) => Some(record),
+                    None => {
                         failed.fetch_add(1, Ordering::Relaxed);
                         None
                     }
@@ -207,15 +219,14 @@ pub fn parse_jimage(
                 }
                 let lookup = format!("/{module}/{path}");
                 let bytes = jimage.find_resource(&lookup).ok().flatten()?;
-                match ClassParser::new(interner).parse_cafebabe(&bytes) {
-                    Ok(stub) => {
-                        let mut record = StubRecord::new(interner, stub);
+                match parse_class_bytes(&bytes, interner) {
+                    Some(mut record) => {
                         if matches!(record.stub, ClassOrModuleStub::Class(_)) {
                             record.module = Some(interner.get_or_intern(&module));
                         }
                         Some(record)
                     }
-                    Err(_) => {
+                    None => {
                         failed.fetch_add(1, Ordering::Relaxed);
                         None
                     }
@@ -230,6 +241,105 @@ pub fn parse_jimage(
     Ok(records)
 }
 
+/// Parses every `.class` file under a directory tree (a build tool's output
+/// directory) into the same stub form as a jar. Nested classes keep their JVM
+/// binary names (`Outer$Inner`) exactly as in jars, so downstream FQN handling
+/// is shared. The file list is sorted first, keeping the result deterministic.
+///
+/// Unlike [`parse_jar`], a directory is always an unnamed module: there is no
+/// `module-info.class` archive to tag its classes from.
+pub fn parse_classdir(
+    dir: &Path,
+    interner: &ThreadedRodeo,
+    cancel_check: &dyn Fn(),
+) -> anyhow::Result<Vec<StubRecord>> {
+    let mut class_files = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
+        let entry = entry?;
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "class") {
+            class_files.push(entry.into_path());
+        }
+    }
+    class_files.sort();
+
+    let failed = AtomicUsize::new(0);
+    let mut records: Vec<StubRecord> = Vec::with_capacity(class_files.len());
+    // Chunked for the same reason as [`parse_jar`]: a query holding a database
+    // snapshot must be able to unwind at a bounded point when a write is
+    // waiting on it. Each chunk runs on the parse pool (see [`PARSE_POOL`]).
+    for chunk in class_files.chunks(PARSE_CHUNK) {
+        cancel_check();
+        on_parse_pool(|| {
+            records.par_extend(chunk.into_par_iter().filter_map(|path| {
+                let bytes = match std::fs::read(path) {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        tracing::warn!(path = %path.display(), "failed to read class file: {err}");
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        return None;
+                    }
+                };
+                match parse_class_bytes(&bytes, interner) {
+                    Some(record) => Some(record),
+                    None => {
+                        failed.fetch_add(1, Ordering::Relaxed);
+                        None
+                    }
+                }
+            }));
+        });
+    }
+    let failed = failed.load(Ordering::Relaxed);
+    if failed > 0 {
+        tracing::warn!(%failed, dir = %dir.display(), "failed to parse class files");
+    }
+    // No `tag_jar_module`: a class output directory belongs to the unnamed
+    // module.
+    Ok(records)
+}
+
+/// Cheap freshness fingerprint for a class directory: (file count, newest
+/// mtime in seconds, total bytes of its `.class` files). Any rebuild of the
+/// module changes at least one of the three.
+pub fn classdir_fingerprint(dir: &Path) -> std::io::Result<(u64, u64, u64)> {
+    let mut count = 0u64;
+    let mut newest = 0u64;
+    let mut bytes = 0u64;
+    for entry in walkdir::WalkDir::new(dir).follow_links(false) {
+        let entry = entry.map_err(|err| {
+            err.io_error().map_or_else(
+                || std::io::Error::other(err.to_string()),
+                |io| std::io::Error::new(io.kind(), io.to_string()),
+            )
+        })?;
+        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "class") {
+            let metadata = entry.metadata()?;
+            count += 1;
+            bytes += metadata.len();
+            let mtime = metadata
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_secs())
+                .unwrap_or(0);
+            newest = newest.max(mtime);
+        }
+    }
+    Ok((count, newest, bytes))
+}
+
+/// The [`crate::db::LibraryId`] of a class output directory: the absolute path
+/// plus its [`classdir_fingerprint`], so a rebuilt module (a new or changed
+/// class file) gets a new id and therefore a stub-cache miss. A directory's own
+/// mtime does not move when a child is rewritten, hence the fingerprint.
+pub fn classdir_library_id(dir: &Path) -> std::io::Result<project_model::LibraryId> {
+    let absolute = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let fingerprint = classdir_fingerprint(dir)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    absolute.hash(&mut hasher);
+    fingerprint.hash(&mut hasher);
+    Ok(project_model::LibraryId(hasher.finish()))
+}
+
 fn parse_archive(
     kind: LibraryKind,
     archive: &Utf8Path,
@@ -239,6 +349,7 @@ fn parse_archive(
     match kind {
         LibraryKind::Jar => parse_jar(archive, interner, cancel_check),
         LibraryKind::Jimage => parse_jimage(archive, interner, cancel_check),
+        LibraryKind::ClassDir => parse_classdir(archive.as_std_path(), interner, cancel_check),
     }
 }
 
@@ -452,11 +563,12 @@ mod tests {
         (dir, store)
     }
 
-    /// Builds a minimal, hand-encoded `com/example/Greeter` class file with two
-    /// methods (`<init>` and `greet`) and one field (`name`), then packs it
-    /// into a jar. Hand-encoding keeps the test self-contained and avoids
-    /// depending on the (currently incomplete) rust-asm writer.
-    fn greeter_class_bytes() -> Vec<u8> {
+    /// Builds a minimal, hand-encoded class file named `class_name` (an
+    /// internal JVM name such as `com/example/Greeter`) with two methods
+    /// (`<init>` and `greet`) and one field (`name`). Hand-encoding keeps the
+    /// tests self-contained and avoids depending on the (currently incomplete)
+    /// rust-asm writer.
+    fn simple_class_bytes(class_name: &str) -> Vec<u8> {
         fn utf8(bytes: &mut Vec<u8>, s: &str) {
             bytes.push(1);
             bytes.extend_from_slice(&(s.len() as u16).to_be_bytes());
@@ -475,7 +587,7 @@ mod tests {
         bytes.extend_from_slice(&11u16.to_be_bytes()); // constant pool count (1-based)
 
         // cp #1
-        utf8(&mut bytes, "com/example/Greeter");
+        utf8(&mut bytes, class_name);
         // cp #2
         class_ref(&mut bytes, 1);
         // cp #3
@@ -519,6 +631,10 @@ mod tests {
         bytes.extend_from_slice(&0u16.to_be_bytes()); // class attributes
 
         bytes
+    }
+
+    fn greeter_class_bytes() -> Vec<u8> {
+        simple_class_bytes("com/example/Greeter")
     }
 
     /// Builds a tiny, self-contained jar with a single class
@@ -835,5 +951,116 @@ mod tests {
             &NOOP,
         );
         assert!(result.is_err());
+    }
+
+    /// Writes a class file with a hand-encoded body into `root`, creating the
+    /// package directories the file's binary name implies. Returns its path.
+    fn write_class(root: &std::path::Path, binary_name: &str) -> std::path::PathBuf {
+        let path = root.join(format!("{binary_name}.class"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, simple_class_bytes(binary_name)).unwrap();
+        path
+    }
+
+    #[test]
+    fn classdir_parses_like_a_jar() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        write_class(root, "com/example/Greeter");
+        // A nested binary name under another package proves the walk recurses
+        // and keeps the `$` of nested classes, exactly like a jar entry.
+        write_class(root, "com/example/inner/Outer$Inner");
+        // Non-class files are ignored.
+        std::fs::write(root.join("README.txt"), b"not a class file").unwrap();
+
+        let interner = ThreadedRodeo::default();
+        let records = parse_classdir(root, &interner, &NOOP).unwrap();
+
+        let fqns: Vec<&str> = records.iter().map(|record| record.fqn.as_str()).collect();
+        assert_eq!(
+            fqns,
+            ["com.example.Greeter", "com.example.inner.Outer$Inner"]
+        );
+
+        let greeter = records
+            .iter()
+            .find(|record| record.fqn == "com.example.Greeter")
+            .expect("greeter should be parsed from the directory");
+        assert_eq!(
+            greeter.module, None,
+            "class directories are unnamed modules"
+        );
+        let ClassOrModuleStub::Class(class) = &greeter.stub else {
+            panic!("expected a class record");
+        };
+        assert_eq!(class.methods.len(), 2);
+        assert_eq!(class.fields.len(), 1);
+        assert_eq!(class.methods[1].name, interner.get_or_intern("greet"));
+
+        let inner = records
+            .iter()
+            .find(|record| record.fqn == "com.example.inner.Outer$Inner")
+            .expect("nested class should be walked");
+        let ClassOrModuleStub::Class(class) = &inner.stub else {
+            panic!("expected a class record");
+        };
+        assert_eq!(
+            class.fqn,
+            interner.get_or_intern("com.example.inner.Outer$Inner")
+        );
+
+        // The sorted walk makes the record order deterministic.
+        let again = parse_classdir(root, &interner, &NOOP).unwrap();
+        assert_eq!(
+            again
+                .iter()
+                .map(|record| record.fqn.as_str())
+                .collect::<Vec<_>>(),
+            fqns
+        );
+
+        // The full pipeline dispatches `ClassDir` through `parse_archive` and
+        // caches it under the fingerprint-derived id.
+        let (_store_dir, store) = store_fixture();
+        let id = classdir_library_id(root).unwrap();
+        let archive = Utf8Path::from_path(root).unwrap();
+        let index =
+            load_or_build(id, LibraryKind::ClassDir, archive, &interner, &NOOP, &store).unwrap();
+        assert!(
+            index
+                .lookup_fqn(interner.get_or_intern("com.example.Greeter"))
+                .is_some()
+        );
+        assert!(
+            index
+                .lookup_fqn(interner.get_or_intern("com.example.inner.Outer$Inner"))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn classdir_library_id_tracks_the_directory_fingerprint() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        let first = write_class(root, "com/example/Greeter");
+
+        let original = classdir_library_id(root).unwrap();
+        assert_eq!(classdir_fingerprint(root).unwrap().0, 1);
+
+        // Adding a class changes the file count.
+        write_class(root, "com/example/Second");
+        let added = classdir_library_id(root).unwrap();
+        assert_ne!(added, original, "a new class file must change the id");
+        assert_eq!(classdir_fingerprint(root).unwrap().0, 2);
+
+        // Rewriting a class changes the total byte count even when both writes
+        // land in the same mtime second.
+        let before_rewrite = classdir_fingerprint(root).unwrap();
+        let mut changed = simple_class_bytes("com/example/Greeter");
+        changed.push(0);
+        std::fs::write(&first, changed).unwrap();
+        let rewritten = classdir_library_id(root).unwrap();
+        assert_ne!(rewritten, added, "a changed class file must change the id");
+        assert_ne!(classdir_fingerprint(root).unwrap(), before_rewrite);
     }
 }
