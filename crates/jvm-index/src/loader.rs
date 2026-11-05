@@ -247,7 +247,9 @@ pub fn parse_jimage(
 /// is shared. The file list is sorted first, keeping the result deterministic.
 ///
 /// Unlike [`parse_jar`], a directory is always an unnamed module: there is no
-/// `module-info.class` archive to tag its classes from.
+/// `module-info.class` archive to tag its classes from. A class-dir
+/// `module-info.class` is therefore skipped — parsing it would create a
+/// phantom module record with no module name.
 pub fn parse_classdir(
     dir: &Path,
     interner: &ThreadedRodeo,
@@ -255,8 +257,21 @@ pub fn parse_classdir(
 ) -> anyhow::Result<Vec<StubRecord>> {
     let mut class_files = Vec::new();
     for entry in walkdir::WalkDir::new(dir).follow_links(false) {
-        let entry = entry?;
-        if entry.file_type().is_file() && entry.path().extension().is_some_and(|e| e == "class") {
+        let entry = match entry {
+            Ok(entry) => entry,
+            // A root error means the directory itself cannot be read; keep it
+            // meaningful instead of returning an empty mirror. An individual
+            // unreadable entry is skipped, like an unreadable class file below.
+            Err(err) if err.depth() == 0 => return Err(err.into()),
+            Err(err) => {
+                tracing::warn!(dir = %dir.display(), "skipping unreadable directory entry: {err}");
+                continue;
+            }
+        };
+        if entry.file_type().is_file()
+            && entry.path().extension().is_some_and(|e| e == "class")
+            && entry.file_name() != "module-info.class"
+        {
             class_files.push(entry.into_path());
         }
     }
@@ -970,6 +985,8 @@ mod tests {
         // A nested binary name under another package proves the walk recurses
         // and keeps the `$` of nested classes, exactly like a jar entry.
         write_class(root, "com/example/inner/Outer$Inner");
+        // A class-dir module descriptor must not become a phantom module.
+        write_class(root, "module-info");
         // Non-class files are ignored.
         std::fs::write(root.join("README.txt"), b"not a class file").unwrap();
 
