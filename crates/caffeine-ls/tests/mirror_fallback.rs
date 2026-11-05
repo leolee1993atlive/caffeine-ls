@@ -53,31 +53,26 @@ fn set_tree_mtime(root: &Path, time: SystemTime) {
 /// The JDK the fixture's JRE container and the language server resolve
 /// against.
 ///
-/// A set `JAVA_HOME` is authoritative and must point at a usable JDK: a broken
-/// environment is a test failure, not a skip, because skipping silently would
-/// disable the only automated coverage of the fallback. Only when no
-/// `JAVA_HOME` is set at all does the host's known Dragonwell 21 act as a
-/// fallback (and only when that is missing too is the test skipped).
-fn java_home() -> Option<PathBuf> {
+/// `JAVA_HOME` is authoritative and must point at a usable JDK (21 for the
+/// fixture's language level). A missing or broken environment is a test
+/// failure, not a skip: skipping silently would disable the only automated
+/// coverage of the fallback.
+fn java_home() -> PathBuf {
     let usable = |path: &Path| {
         let bin = path.join("bin");
         // `javac.exe` on Windows, plain `javac` on Linux/macOS.
         bin.join("javac").exists() || bin.join("javac.exe").exists()
     };
-    match std::env::var_os("JAVA_HOME").map(PathBuf::from) {
-        Some(home) => {
-            assert!(
-                usable(&home),
-                "JAVA_HOME is set to `{}` but it contains no bin/javac",
-                home.display()
-            );
-            Some(home)
-        }
-        None => {
-            let fallback = PathBuf::from("C:/Users/limy/.jdks/dragonwell-21.0.11");
-            usable(&fallback).then_some(fallback)
-        }
-    }
+    let Some(home) = std::env::var_os("JAVA_HOME").map(PathBuf::from) else {
+        panic!("set JAVA_HOME to a JDK 21 install to run mirror_fallback");
+    };
+    assert!(
+        usable(&home),
+        "JAVA_HOME is set to `{}` but it contains no bin/javac; \
+         set JAVA_HOME to a JDK 21 install to run mirror_fallback",
+        home.display()
+    );
+    home
 }
 
 /// Copies the fixture to a temporary workspace. `mirror_newer` selects the
@@ -124,10 +119,7 @@ fn run_diagnostics(root: &Path, java_home: &Path, expected_exit: i32) -> String 
 
 #[test]
 fn lombok_style_members_and_types_resolve_via_mirror() {
-    let Some(java_home) = java_home() else {
-        eprintln!("skipping: no JDK available (set JAVA_HOME)");
-        return;
-    };
+    let java_home = java_home();
     // `bin/` is newer than `src/`: the mirror wins and every source-only gap
     // (factory, getters, two-argument constructor, builder type/methods, the
     // generated `log` field) resolves through it.
@@ -146,10 +138,7 @@ fn lombok_style_members_and_types_resolve_via_mirror() {
 
 #[test]
 fn stale_mirror_disables_the_fallback() {
-    let Some(java_home) = java_home() else {
-        eprintln!("skipping: no JDK available (set JAVA_HOME)");
-        return;
-    };
+    let java_home = java_home();
     // Sources are newer than `bin/`: the mirror is stale, so the fallback must
     // stay off and the unresolved members reappear. Pin the generated members
     // the source does not declare — a gate regression that only disabled, say,
