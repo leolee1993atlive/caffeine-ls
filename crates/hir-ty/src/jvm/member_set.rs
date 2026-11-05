@@ -1087,11 +1087,14 @@ fn mirror_class_for_source(
 /// The bytecode-mirror library registered for `file`'s source set, when its
 /// top-level class file is at least as new as the source file.
 ///
-/// The stat is deliberately not memoized: a build writes the class file while
-/// the server is running, and the freshness gate must observe that write on
-/// the next query. A failed stat (missing source root, missing class file) is
-/// a "no mirror" answer — the fallback must never invent a resolution from a
-/// mirror it cannot prove is current.
+/// The stat is deliberately not memoized *inside* the member set: a build may
+/// rewrite the class file without touching any salsa input, so the freshness
+/// gate is evaluated whenever a member set for the source receiver is
+/// (re)derived — typically after a workspace reload re-runs the tracked
+/// query — not on every call (`member_set_query` memoizes per `(scope,
+/// receiver, name, ctx)`). A failed stat (missing source root, missing class
+/// file) is a "no mirror" answer — the fallback must never invent a resolution
+/// from a mirror it cannot prove is current.
 fn fresh_mirror_library(
     db: &dyn TyDatabase,
     file: vfs::FileId,
