@@ -12,6 +12,12 @@ pub struct MavenProject {
     pub path: String,
     pub name: String,
     pub project_dir: PathBuf,
+    /// Absolute path of the module's main compile output (`target/classes`).
+    #[serde(default)]
+    pub output_dir: Option<PathBuf>,
+    /// Absolute path of the module's test compile output (`target/test-classes`).
+    #[serde(default)]
+    pub test_output_dir: Option<PathBuf>,
     pub source_roots: Vec<PathBuf>,
     pub test_roots: Vec<PathBuf>,
     pub resource_roots: Vec<PathBuf>,
@@ -54,6 +60,8 @@ mod tests {
           "path": ":app",
           "name": "app",
           "project_dir": "/w/app",
+          "output_dir": "/w/app/target/classes",
+          "test_output_dir": "/w/app/target/test-classes",
           "source_roots": [
             "/w/app/src/main/java",
             "/w/app/src/main/kotlin"
@@ -94,5 +102,29 @@ mod tests {
                 PathBuf::from("/w/app/src/test/kotlin"),
             ]
         );
+    }
+
+    #[test]
+    fn output_dirs_survive_the_export() {
+        let workspace: MavenWorkspace = serde_json::from_str(EXPORT).unwrap();
+        let app = &workspace.projects[0];
+        assert_eq!(
+            app.output_dir.as_deref(),
+            Some(std::path::Path::new("/w/app/target/classes"))
+        );
+        assert_eq!(
+            app.test_output_dir.as_deref(),
+            Some(std::path::Path::new("/w/app/target/test-classes"))
+        );
+    }
+
+    #[test]
+    fn missing_output_dirs_default_to_none() {
+        // 旧版 sidecar 的 JSON 没有这两个字段，必须能反序列化
+        let json = EXPORT
+            .replace(r#""output_dir": "/w/app/target/classes","#, "")
+            .replace(r#""test_output_dir": "/w/app/target/test-classes","#, "");
+        let workspace: MavenWorkspace = serde_json::from_str(&json).unwrap();
+        assert!(workspace.projects[0].output_dir.is_none());
     }
 }

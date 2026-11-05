@@ -189,6 +189,14 @@ public class ExportModelMojo extends AbstractMojo {
             modelProject.put("path", projKey);
             modelProject.put("name", proj.getArtifactId());
             modelProject.put("project_dir", normalizePath(proj.getBasedir()));
+            File outputDir = normalizeFile(new File(proj.getBuild().getOutputDirectory()));
+            if (outputDir != null) {
+                modelProject.put("output_dir", outputDir.getAbsolutePath());
+            }
+            File testOutputDir = normalizeFile(new File(proj.getBuild().getTestOutputDirectory()));
+            if (testOutputDir != null) {
+                modelProject.put("test_output_dir", testOutputDir.getAbsolutePath());
+            }
             modelProject.put("source_roots", new ArrayList<>(new LinkedHashSet<>(sourceRoots)));
             modelProject.put("test_roots", new ArrayList<>(new LinkedHashSet<>(testRoots)));
             modelProject.put("resource_roots", new ArrayList<>(resourceRoots));
