@@ -399,7 +399,17 @@ pub fn build_graph_from_maven_json(workspace: MavenWorkspace) -> WorkspaceGraph 
 mod tests {
     use super::*;
 
+    // `AbsPathBuf::assert_utf8` panics on a relative path, and `C:/w/app` is
+    // only absolute on Windows. Keep the fixture root platform-absolute so the
+    // test exercises the same code path on every host.
+    #[cfg(windows)]
+    const FIXTURE_ROOT: &str = "C:/w/app";
+    #[cfg(not(windows))]
+    const FIXTURE_ROOT: &str = "/w/app";
+
     fn export(extra: &str) -> MavenWorkspace {
+        let project_dir = FIXTURE_ROOT;
+        let java_home = format!("{FIXTURE_ROOT}/jdk");
         let json = format!(
             r#"{{
               "workspace_name": "app",
@@ -407,7 +417,7 @@ mod tests {
                 {{
                   "path": ":app",
                   "name": "app",
-                  "project_dir": "C:/w/app",
+                  "project_dir": "{project_dir}",
                   {extra}
                   "source_roots": [],
                   "test_roots": [],
@@ -418,7 +428,7 @@ mod tests {
                   "java_language_version": null,
                   "java_release": null,
                   "java_language_preview": null,
-                  "java_home": "C:/jdk"
+                  "java_home": "{java_home}"
                 }}
               ]
             }}"#
@@ -438,20 +448,18 @@ mod tests {
     /// the synthetic `scripts` set never gets one.
     #[test]
     fn maven_output_dirs_become_source_set_mirror_dirs() {
-        let graph = build_graph_from_maven_json(export(
-            r#""output_dir": "C:/w/app/target/classes",
-               "test_output_dir": "C:/w/app/target/test-classes","#,
-        ));
+        let main_output = format!("{FIXTURE_ROOT}/target/classes");
+        let test_output = format!("{FIXTURE_ROOT}/target/test-classes");
+        let graph = build_graph_from_maven_json(export(&format!(
+            r#""output_dir": "{main_output}",
+               "test_output_dir": "{test_output}","#
+        )));
 
         assert_eq!(
             mirror_dirs(&graph),
             (
-                Some(AbsPathBuf::assert_utf8(PathBuf::from(
-                    "C:/w/app/target/classes"
-                ))),
-                Some(AbsPathBuf::assert_utf8(PathBuf::from(
-                    "C:/w/app/target/test-classes"
-                ))),
+                Some(AbsPathBuf::assert_utf8(PathBuf::from(main_output))),
+                Some(AbsPathBuf::assert_utf8(PathBuf::from(test_output))),
             )
         );
         assert_eq!(
