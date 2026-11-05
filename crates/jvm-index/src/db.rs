@@ -685,22 +685,36 @@ pub(crate) fn fqn_resolve_query(
     if let Some(resolved) = source_resolve(db, source_set, fqn.as_str()) {
         return Some(resolved);
     }
-    let entries = graph.source_sets(db).get(source_set)?;
-    for entry in &entries.entries {
-        match entry {
-            ClasspathEntry::SourceSet(internal) => {
-                if let Some(resolved) = source_resolve(db, internal, fqn.as_str()) {
-                    return Some(resolved);
+    if let Some(entries) = graph.source_sets(db).get(source_set) {
+        for entry in &entries.entries {
+            match entry {
+                ClasspathEntry::SourceSet(internal) => {
+                    if let Some(resolved) = source_resolve(db, internal, fqn.as_str()) {
+                        return Some(resolved);
+                    }
                 }
-            }
-            ClasspathEntry::Library(library) => {
-                if let Some(resolved) =
-                    resolve_in_libraries(db, std::slice::from_ref(library), fqn.as_str())
-                {
-                    return Some(Resolved::Library(resolved));
+                ClasspathEntry::Library(library) => {
+                    if let Some(resolved) =
+                        resolve_in_libraries(db, std::slice::from_ref(library), fqn.as_str())
+                    {
+                        return Some(Resolved::Library(resolved));
+                    }
                 }
             }
         }
+    }
+    // Bytecode mirror: a type an annotation processor generated exists only in
+    // the source set's own compile output (`Person$PersonBuilder` has no source
+    // declaration). The mirror is consulted last — a source type or classpath
+    // class of the same FQN above already won — and is deliberately off the
+    // classpath so it never shadows source declarations. No mtime gate is
+    // needed here: reaching this point *is* the "the type exists nowhere
+    // source-side" condition, so a stale mirror can only answer types that
+    // would otherwise be unresolved.
+    if let Some(mirror) = graph.mirror_libraries(db).get(&source_set)
+        && let Some(resolved) = resolve_in_libraries(db, std::slice::from_ref(mirror), fqn.as_str())
+    {
+        return Some(Resolved::Library(resolved));
     }
     None
 }

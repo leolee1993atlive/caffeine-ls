@@ -967,9 +967,16 @@ fn object_member_signature(
 /// The methods of a single class or interface, instantiated with `ty`'s type
 /// arguments.
 fn class_methods(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) -> Vec<MethodData> {
-    let TyKind::Reference { args, .. } = ty.kind(db) else {
+    let TyKind::Reference {
+        name: fqn,
+        args,
+        local,
+    } = ty.kind(db)
+    else {
         return Vec::new();
     };
+    let fqn = fqn.clone();
+    let local = *local;
     // §6.7: the receiver's declaration — a *local* class's own item, or the
     // class its canonical name resolves to.
     let Some(resolved) =
@@ -984,10 +991,130 @@ fn class_methods(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) -
         // A source class — a facade included — answers through the JVM view of
         // the language that declares it (a Kotlin class's JVM-visible members
         // are the ones its compiler emits; a facade's are the file's top-level
-        // declarations).
+        // declarations). A source class additionally consults its module's
+        // bytecode mirror: an annotation processor may have generated members
+        // the source does not declare (Lombok's getters, factories,
+        // constructors and nested builders). Source declarations win; the
+        // mirror only fills the gap.
+        jvm_index::Resolved::Source(source) => {
+            let mut out = crate::lang::member_source(db, &resolved)
+                .map_or_else(Vec::new, |member_source| {
+                    member_source.methods(db, &resolved, &args, name)
+                });
+            // A declaration-level walk (`name == ""`) must stay a declaration
+            // enumeration: a mirror member is not declared anywhere the
+            // declaration checks can see, so it must not appear there.
+            if !name.is_empty() && local.is_none() {
+                let mirror = mirror_class_methods(db, source, fqn.as_str(), &args, name);
+                out = merge_mirror_methods(db, out, mirror);
+            }
+            out
+        }
         class => crate::lang::member_source(db, &class)
             .map_or_else(Vec::new, |source| source.methods(db, &class, &args, name)),
     }
+}
+
+/// The mirror's methods for `name` on the source class `source`, or empty when
+/// the source set has no registered mirror or the mirror's top-level class
+/// file is stale.
+fn mirror_class_methods(
+    db: &dyn TyDatabase,
+    source: jvm_index::SourceClass,
+    fqn: &str,
+    args: &[Ty],
+    name: &str,
+) -> Vec<MethodData> {
+    let Some(class) = mirror_class_for_source(db, source, fqn) else {
+        return Vec::new();
+    };
+    let mut out = library_class_methods(db, class.clone(), args.to_vec(), name);
+    // A source constructor is looked up under the class's simple name
+    // ([`source_class_methods`]); its classfile spelling is `<init>`
+    // ([JVMS §4.6]). Report the mirror constructors under the caller's name so
+    // they dedupe against the source's and downstream sees one shape.
+    if name == simple_name(fqn) {
+        let mut constructors = library_class_methods(db, class, args.to_vec(), "<init>");
+        for constructor in &mut constructors {
+            constructor.name = name.to_owned();
+        }
+        out.extend(constructors);
+    }
+    out
+}
+
+/// Appends the mirror methods whose signature the source answer does not
+/// already declare. The source wins: a member the user wrote shadows whatever
+/// an earlier annotation-processor run emitted under the same signature.
+fn merge_mirror_methods(
+    db: &dyn TyDatabase,
+    mut source: Vec<MethodData>,
+    mirror: Vec<MethodData>,
+) -> Vec<MethodData> {
+    for method in mirror {
+        let declared = source.iter().any(|existing| {
+            existing.name == method.name
+                && existing.params.len() == method.params.len()
+                && existing
+                    .params
+                    .iter()
+                    .zip(&method.params)
+                    .all(|(a, b)| a == b || a.erasure(db) == b.erasure(db))
+        });
+        if !declared {
+            source.push(method);
+        }
+    }
+    source
+}
+
+/// The simple name of a fully qualified class name.
+fn simple_name(fqn: &str) -> &str {
+    fqn.rsplit('.').next().unwrap_or(fqn)
+}
+
+/// Resolves the class `fqn` inside the bytecode mirror of `source`'s source
+/// set, when that mirror is fresh relative to the source file.
+fn mirror_class_for_source(
+    db: &dyn TyDatabase,
+    source: jvm_index::SourceClass,
+    fqn: &str,
+) -> Option<jvm_index::ResolvedClass> {
+    let mirror = fresh_mirror_library(db, source.file, fqn)?;
+    jvm_index::resolve_in_libraries(db, &[mirror], fqn)
+}
+
+/// The bytecode-mirror library registered for `file`'s source set, when its
+/// top-level class file is at least as new as the source file.
+///
+/// The stat is deliberately not memoized: a build writes the class file while
+/// the server is running, and the freshness gate must observe that write on
+/// the next query. A failed stat (missing source root, missing class file) is
+/// a "no mirror" answer — the fallback must never invent a resolution from a
+/// mirror it cannot prove is current.
+fn fresh_mirror_library(
+    db: &dyn TyDatabase,
+    file: vfs::FileId,
+    fqn: &str,
+) -> Option<jvm_index::LibraryId> {
+    let source_set = jvm_index::source_set_for_file(db, file)?;
+    let graph = jvm_index::ProjectGraph::try_get(db)?;
+    let mirror = *graph.mirror_libraries(db).get(&source_set)?;
+    let library = graph.libraries(db).get(&mirror)?;
+    let mirror_dir = library.path.as_path();
+    // Source-side nested names nest with dots; the class file of the *top
+    // level* holds the generated members this fallback is about.
+    let package = jvm_index::file_package(db, file);
+    let top_level = source_top_level(Some(package.as_str()), fqn);
+    let class_file = mirror_dir.join(format!("{}.class", top_level.replace('.', "/")));
+    let class_mtime = std::fs::metadata(class_file)
+        .and_then(|metadata| metadata.modified())
+        .ok()?;
+    let source_path = jvm_index::file_abs_path(db, file)?;
+    let source_mtime = std::fs::metadata(source_path)
+        .and_then(|metadata| metadata.modified())
+        .ok()?;
+    (class_mtime >= source_mtime).then_some(mirror)
 }
 
 /// The package of a fully qualified class name, or `None` for the unnamed
@@ -1366,9 +1493,16 @@ fn pick_field_impl(
 /// The fields of a single class or interface, instantiated with `ty`'s type
 /// arguments.
 fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) -> Vec<FieldData> {
-    let TyKind::Reference { args, .. } = ty.kind(db) else {
+    let TyKind::Reference {
+        name: fqn,
+        args,
+        local,
+    } = ty.kind(db)
+    else {
         return Vec::new();
     };
+    let fqn = fqn.clone();
+    let local = *local;
     // §6.7: the receiver's declaration — a *local* class's own item, or the
     // class its canonical name resolves to.
     let Some(resolved) =
@@ -1381,7 +1515,27 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
         // A classfile's fields are its record's.
         jvm_index::Resolved::Library(class) => library_class_fields(db, class, args, name),
         // A source class answers through the JVM view of its own language (a
-        // facade's fields are the file's top-level `const val`s).
+        // facade's fields are the file's top-level `const val`s). A source
+        // class also consults its module's bytecode mirror for a field an
+        // annotation processor generated (`@Slf4j`'s `log`); a field the
+        // source declares wins.
+        jvm_index::Resolved::Source(source) => {
+            let mut out = crate::lang::member_source(db, &resolved)
+                .map_or_else(Vec::new, |member_source| {
+                    member_source.fields(db, &resolved, &args, name)
+                });
+            if !name.is_empty()
+                && local.is_none()
+                && let Some(class) = mirror_class_for_source(db, source, fqn.as_str())
+            {
+                for field in library_class_fields(db, class, args, name) {
+                    if !out.iter().any(|existing| existing.name == field.name) {
+                        out.push(field);
+                    }
+                }
+            }
+            out
+        }
         class => crate::lang::member_source(db, &class)
             .map_or_else(Vec::new, |source| source.fields(db, &class, &args, name)),
     }
