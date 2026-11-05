@@ -11,7 +11,11 @@ use std::path::{Path, PathBuf};
 
 pub const SIDECAR_GROUP: &str = "org.cubewhy.caffeine_ls";
 pub const SIDECAR_ARTIFACT: &str = "caffeine-ls-maven-sidecar";
-pub const SIDECAR_VERSION: &str = "0.1.0";
+// Bump this whenever the sidecar Java sources change. Maven resolves an
+// existing GAV from `~/.m2` before consulting the embedded `file://` plugin
+// repository, so reusing a version leaves a stale jar in place and the new
+// mojo code (e.g. `output_dir`) never runs, silently disabling the mirror.
+pub const SIDECAR_VERSION: &str = "0.1.1";
 
 /// The embedded sidecar plugin jar.
 pub fn sidecar_jar_bytes() -> &'static [u8] {

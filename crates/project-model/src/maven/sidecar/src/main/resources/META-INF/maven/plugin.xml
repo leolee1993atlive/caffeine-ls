@@ -4,7 +4,7 @@
   <description>Exports the Maven workspace model for the Caffeine LS server</description>
   <groupId>org.cubewhy.caffeine_ls</groupId>
   <artifactId>caffeine-ls-maven-sidecar</artifactId>
-  <version>0.1.0</version>
+  <version>0.1.1</version>
   <goalPrefix>caffeine-ls</goalPrefix>
   <isolatedRealm>false</isolatedRealm>
   <inheritedByDefault>true</inheritedByDefault>
