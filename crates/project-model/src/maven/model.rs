@@ -126,5 +126,6 @@ mod tests {
             .replace(r#""test_output_dir": "/w/app/target/test-classes","#, "");
         let workspace: MavenWorkspace = serde_json::from_str(&json).unwrap();
         assert!(workspace.projects[0].output_dir.is_none());
+        assert!(workspace.projects[0].test_output_dir.is_none());
     }
 }
