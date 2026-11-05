@@ -26,17 +26,18 @@ fn main() -> ExitCode {
 
     std::panic::set_hook(Box::new(|info| {
         use std::io::Write as _;
-        let msg = format!(
-            "{info}\n{:?}\n",
-            std::backtrace::Backtrace::force_capture()
-        );
+        let msg = format!("{info}\n{:?}\n", std::backtrace::Backtrace::force_capture());
         eprintln!("CAFFEINE-PANIC: {msg}");
+        // A developer may not have permission to write beside the workspace;
+        // the OS temp directory is always a valid, portable target. Failure to
+        // open it stays silent (stderr already carries the panic).
+        let log_path = std::env::temp_dir().join("caffeine-panic.log");
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(r"D:\code\myproject\rust_idea\caffeine-panic.log")
+            .open(log_path)
         {
-            let _ = f.write_all(msg.as_bytes());
+            let _ = write!(f, "CAFFEINE-PANIC: {msg}");
         }
     }));
 
