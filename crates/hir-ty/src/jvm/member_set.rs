@@ -1087,6 +1087,13 @@ fn mirror_class_for_source(
 /// The bytecode-mirror library registered for `file`'s source set, when its
 /// top-level class file is at least as new as the source file.
 ///
+/// The mirror's *contents* and its registration in `mirror_libraries` are
+/// captured when the workspace is loaded: the index is built from the class
+/// files present at that point, and an external rebuild does not update it.
+/// Picking up newly emitted classes therefore needs a workspace reload, which
+/// re-indexes the directory. The mtime gate here only *suppresses* a mirror
+/// that is older than its source; it cannot make a load-time index newer.
+///
 /// The stat is deliberately not memoized *inside* the member set: a build may
 /// rewrite the class file without touching any salsa input, so the freshness
 /// gate is evaluated whenever a member set for the source receiver is
@@ -1523,21 +1530,22 @@ fn class_fields(db: &dyn TyDatabase, scope_id: &ScopeId, ty: &Ty, name: &str) ->
         // annotation processor generated (`@Slf4j`'s `log`); a field the
         // source declares wins.
         jvm_index::Resolved::Source(source) => {
-            let mut out = crate::lang::member_source(db, &resolved)
+            let out = crate::lang::member_source(db, &resolved)
                 .map_or_else(Vec::new, |member_source| {
                     member_source.fields(db, &resolved, &args, name)
                 });
-            if !name.is_empty()
-                && local.is_none()
-                && let Some(class) = mirror_class_for_source(db, source, fqn.as_str())
-            {
-                for field in library_class_fields(db, class, args, name) {
-                    if !out.iter().any(|existing| existing.name == field.name) {
-                        out.push(field);
-                    }
-                }
+            // A named lookup is answered by the source when it declares the
+            // field: a same-name mirror field can never be merged, so there is
+            // no reason to stat or parse the mirror at all. Mirror work only
+            // happens when the source answer is empty (and the lookup is
+            // named, non-local).
+            if !out.is_empty() || name.is_empty() || local.is_some() {
+                return out;
             }
-            out
+            match mirror_class_for_source(db, source, fqn.as_str()) {
+                Some(class) => library_class_fields(db, class, args, name),
+                None => out,
+            }
         }
         class => crate::lang::member_source(db, &class)
             .map_or_else(Vec::new, |source| source.fields(db, &class, &args, name)),
