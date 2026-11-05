@@ -10,6 +10,7 @@ pub use ide_db::{
     line_index::{LineCol, LineIndex},
 };
 pub use ide_diagnostics::Diagnostic;
+pub use jvm_index::loader::classdir_library_id;
 pub use jvm_index::{
     Classpath, ClasspathEntry, FileIndexBlob, LibraryInfo, LibraryKind, LibrarySources,
     PROJECT_INDEX_FORMAT_VERSION, PathEntryBlob, ProjectGraphData, ProjectIndexStore, SourceSetId,

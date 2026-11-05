@@ -67,6 +67,12 @@ pub struct ProjectGraph {
     /// source set → its (build-tool flattened, ordered) compile classpath.
     #[returns(ref)]
     pub source_sets: FxHashMap<SourceSetId, Arc<Classpath>>,
+    /// source set → the [`LibraryKind::ClassDir`] library holding its own build
+    /// output. Registered in [`Self::libraries`] like any other library, but
+    /// never part of [`Self::source_sets`]: resolution reaches it only as the
+    /// annotation-processor fallback.
+    #[returns(ref)]
+    pub mirror_libraries: FxHashMap<SourceSetId, LibraryId>,
     /// source root → owning source set. `SourceRootId`s are assigned by
     /// `FileChange::apply` in the order roots were set, so the driver must
     /// keep this map aligned with that order.
@@ -251,6 +257,7 @@ pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
         workspace_root: _,
         libraries,
         source_sets,
+        mirror_libraries,
         source_root_to_source_set,
         source_root_dirs,
         jdk_libraries,
@@ -266,6 +273,7 @@ pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
         Some(graph) => {
             graph.set_libraries(db).to(libraries);
             graph.set_source_sets(db).to(source_sets);
+            graph.set_mirror_libraries(db).to(mirror_libraries);
             graph
                 .set_source_root_to_source_set(db)
                 .to(source_root_to_source_set);
@@ -286,6 +294,7 @@ pub fn set_project_graph(db: &mut dyn HirDatabase, data: ProjectGraphData) {
                 db,
                 libraries,
                 source_sets,
+                mirror_libraries,
                 source_root_to_source_set,
                 source_root_dirs,
                 jdk_libraries,

@@ -94,6 +94,13 @@ pub struct ProjectGraphData {
     pub workspace_root: Option<AbsPathBuf>,
     pub libraries: FxHashMap<LibraryId, LibraryInfo>,
     pub source_sets: FxHashMap<SourceSetId, Arc<Classpath>>,
+    /// source set → the bytecode mirror library holding that source set's own
+    /// build output (`target/classes`, `bin/`). The library is registered in
+    /// [`Self::libraries`] but deliberately kept off the classpath in
+    /// [`Self::source_sets`]: the resolver only consults it as a fallback,
+    /// after the source declarations, so a class that exists both in source
+    /// and in the mirror does not shadow itself.
+    pub mirror_libraries: FxHashMap<SourceSetId, LibraryId>,
     pub source_root_to_source_set: FxHashMap<base_db::SourceRootId, SourceSetId>,
     /// build-system source root → its resolved base directory (the directory
     /// a classpath looks the root's packages up under), for the package-path

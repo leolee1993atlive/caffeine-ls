@@ -8,7 +8,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crossbeam_channel::Receiver;
 use ide::{
     Change, Classpath, ClasspathEntry as GraphClasspathEntry, LibraryId, LibraryInfo, LibraryKind,
-    LibrarySources, Name, ProjectGraphData, SourceSetId,
+    LibrarySources, Name, ProjectGraphData, SourceSetId, classdir_library_id,
 };
 use ide_db::base_db::{SourceRoot, SourceRootId};
 use lsp_server::{Connection, ErrorCode, Notification, Request};
@@ -1388,6 +1388,46 @@ impl GlobalState {
                         });
                     }
                 }
+            }
+        }
+
+        // Bytecode mirrors: each source set's own compile output, indexed as
+        // a ClassDir library and kept off the regular classpath — resolution
+        // consults it only as an annotation-processor fallback.
+        for project in graph.projects.values() {
+            for source_set in project.source_sets.values() {
+                let Some(mirror_dir) = &source_set.mirror_dir else {
+                    continue;
+                };
+                let mirror_path = Path::new(mirror_dir.as_str());
+                if !mirror_path.is_dir() {
+                    continue;
+                }
+                let library_id = match classdir_library_id(mirror_path) {
+                    Ok(id) => id,
+                    Err(error) => {
+                        tracing::warn!(
+                            "skipping bytecode mirror {}: {error}",
+                            mirror_dir.as_str()
+                        );
+                        continue;
+                    }
+                };
+                data.libraries.entry(library_id).or_insert_with(|| {
+                    LibraryInfo::new(LibraryKind::ClassDir, mirror_dir.clone())
+                });
+                data.mirror_libraries.insert(
+                    SourceSetId {
+                        project: project.id,
+                        kind: source_set.kind.clone(),
+                    },
+                    library_id,
+                );
+                tracing::debug!(
+                    "registered bytecode mirror {} as {}",
+                    mirror_dir.as_str(),
+                    library_id.0
+                );
             }
         }
 
