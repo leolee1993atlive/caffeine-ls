@@ -385,6 +385,7 @@ fn test_workspace_load_refreshes_semantic_tokens() {
 /// A fake `gradle` executable that replays realistic console output, so the
 /// server's Gradle sync path (and its structured progress reporting) can be
 /// exercised without a real JVM/Gradle install.
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_build_sync_reports_structured_progress() {
     use std::os::unix::fs::PermissionsExt;
@@ -526,6 +527,7 @@ exit 0
 /// it: the window is deterministic instead of a race against a real parse. The
 /// observable is a second build-configuration change, which the server must
 /// still answer while the first warmup is stuck.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn workspace_reload_is_not_blocked_by_a_library_index_build() {
     use std::os::unix::fs::PermissionsExt;
@@ -807,7 +809,7 @@ public interface Bar {
     );
 
     // The file URIs embed the temp workspace path, which varies between runs.
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let normalized = normalize_uris(response.clone(), &workspace_root);
     // The new snapshot must show only Foo's symbols (no Bar.java rows).
     insta::assert_json_snapshot!("workspace_symbols", normalized);
@@ -913,6 +915,18 @@ fn request_until(
             "server never produced an acceptable {method} response"
         );
         std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The workspace root spelled as it appears inside `file://` URIs (forward
+/// slashes, and a leading slash before the drive letter on Windows), so
+/// `normalize_uris` can find and replace it in server responses.
+fn uri_root_form(path: &std::path::Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    if cfg!(windows) {
+        format!("/{p}")
+    } else {
+        p
     }
 }
 
@@ -1556,7 +1570,7 @@ class Nav {
         }),
         |response| !response.is_null(),
     );
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let normalized = normalize_uris(response, &workspace_root);
     insta::assert_json_snapshot!("goto_definition_field_read", normalized);
 }
@@ -1618,7 +1632,7 @@ fn reference_rows(
     position: Position,
     include_declaration: bool,
 ) -> Vec<serde_json::Value> {
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let response = request_until(
         lsp,
         "textDocument/references",
@@ -1818,7 +1832,7 @@ fn test_goto_definition_annotation_pairs() {
         );
         observed.push(json!({ "at": needle, "definition": response }));
     }
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let normalized = normalize_uris(serde_json::Value::Array(observed), &workspace_root);
     insta::assert_json_snapshot!("goto_definition_annotation_pairs", normalized);
 }
@@ -2389,7 +2403,7 @@ fn unselected_overload_definition_answers_every_candidate() {
         );
         observed.push(json!({ "at": needle, "definition": response }));
     }
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let normalized = normalize_uris(serde_json::Value::Array(observed), &workspace_root);
     insta::assert_json_snapshot!(
         "unselected_overload_definition_answers_every_candidate",
@@ -3166,7 +3180,7 @@ fn wait_until_pull_with_previous(
 /// keys), then sorts all JSON object keys, so snapshots are stable across runs
 /// and map iteration order.
 fn normalize_and_sort(value: serde_json::Value, lsp: &LspHarness) -> serde_json::Value {
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let mut value = normalize_uris(value, &workspace_root);
     rewrite_json_keys(&mut value, &workspace_root);
     sort_json_objects(&mut value);
@@ -3776,6 +3790,7 @@ public class A {
 /// server resolves `java.util.SequencedCollection` and `List.of` against the
 /// runtime JDK and must report both as `api-not-supported-in-release`
 /// ([JEP 247](https://openjdk.org/jeps/247)).
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_release_api_diagnostic() {
     use std::os::unix::fs::PermissionsExt;
@@ -3921,6 +3936,7 @@ exit 0
 /// [JLS §9.6.1], [§9.7.1]). Requires a real JDK (`JAVA_HOME`), like the
 /// deprecation test: the platform stub index is what makes
 /// `java.lang.Deprecated` resolvable.
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_goto_definition_library_annotation_element() {
     use std::os::unix::fs::PermissionsExt;
@@ -4036,6 +4052,7 @@ exit 0
 ///
 /// Requires a real JDK (`JAVA_HOME`), like the release-view test: the platform
 /// stub index is what makes `java.lang.Thread` resolvable here.
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_deprecation_diagnostics() {
     use std::os::unix::fs::PermissionsExt;
@@ -4160,6 +4177,7 @@ exit 0
 /// the raw use is declared by the classfile, not by this file — and reading it
 /// into a `List<String>` is the unchecked conversion javac reports as
 /// `warning: [unchecked] unchecked conversion`.
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_suppress_warnings_diagnostics() {
     use std::os::unix::fs::PermissionsExt;
@@ -4269,6 +4287,7 @@ exit 0
 /// Requires a real JDK (`JAVA_HOME`), like the deprecation test: the
 /// `Class`-typed element and the class literal in the fixture resolve against
 /// the platform.
+#[cfg(unix)] // shim tests drive a #!/bin/sh fake gradle; no Windows shim exists
 #[test]
 fn test_annotation_element_diagnostics() {
     use std::os::unix::fs::PermissionsExt;
@@ -4441,6 +4460,7 @@ class Sample implements Runnable {
 /// The model JSON reports the jar as a `flat-file` origin, so the sources are
 /// found by the sibling probe (`<stem>-sources.jar`) and not by the build
 /// system.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn library_source_definition_materializes_and_navigates() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
@@ -4770,6 +4790,7 @@ const APP_PATH: &str = "/src/main/java/app/App.java";
 /// handed one: as `--outputdir <dir>`, else as the last argument.
 ///
 /// The temp dirs must outlive the harness the fixture configures.
+#[cfg(unix)]
 struct Decompiler {
     /// The fake JDK: `bin/java` is the stand-in for a decompiler, and the run
     /// log the proof of whether it was started.
@@ -4783,6 +4804,7 @@ struct Decompiler {
     runs: PathBuf,
 }
 
+#[cfg(unix)]
 impl Decompiler {
     fn new(foo_source: &str) -> Self {
         use std::os::unix::fs::PermissionsExt;
@@ -4916,6 +4938,7 @@ exit 0
 /// the real tool would have produced and appends a line to a run log, so the
 /// second request can be proven not to start a second JVM. The jar file itself
 /// is never read (the server only checks that it exists).
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn decompiled_library_definition_materializes_and_navigates() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
@@ -4991,16 +5014,19 @@ fn decompiled_library_definition_materializes_and_navigates() {
     );
 }
 
+#[cfg(unix)] // needs the shim scaffold
 #[test]
 fn kotlin_library_sources_materialize_and_navigate() {
     check_kotlin_library_navigation(true);
 }
 
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn kotlin_library_decompilation_materializes_and_navigates() {
     check_kotlin_library_navigation(false);
 }
 
+#[cfg(unix)]
 fn check_kotlin_library_navigation(attached_sources: bool) {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let decompiler = Decompiler::new(FOO_SOURCE);
@@ -5076,6 +5102,7 @@ fn check_kotlin_library_navigation(attached_sources: bool) {
 /// independently of the JDK the project compiles against: the fixture's fake JDK
 /// is reachable only as `bootstrap_java_home` (the project `java_home` does not
 /// exist), so the decompile can only have happened through it.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn the_bootstrap_jdk_runs_the_decompiler() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
@@ -5128,6 +5155,7 @@ fn the_bootstrap_jdk_runs_the_decompiler() {
 /// client input on the way back in, so one naming a backend this server does
 /// not have — or a `file://` URI of the very file — is refused rather than
 /// answered with an empty document.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn library_view_uri_scheme_is_served_to_the_client() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
@@ -5221,6 +5249,7 @@ fn library_view_uri_scheme_is_served_to_the_client() {
 /// nobody in the editor can fix. The view is read-only for the same reason: a
 /// change that reaches the server anyway never reaches the database, and
 /// closing the tab does not throw the materialized file away.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn library_view_document_supports_ide_features() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
@@ -5357,6 +5386,7 @@ fn library_view_document_supports_ide_features() {
 /// declarations: the file navigates to itself. Dropping the catch-all (as the
 /// partition once did) lowered such a file as `Unknown`, and every request
 /// answered `null`.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn detached_file_definition_navigates_to_itself() {
     use std::os::unix::fs::PermissionsExt;
@@ -5730,7 +5760,7 @@ fn record_component_lsp() -> LspHarness {
 
 /// The `textDocument/definition` result at one position, normalized.
 fn definition_at(lsp: &LspHarness, path: &str, position: Position) -> serde_json::Value {
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let response = request_until(
         lsp,
         "textDocument/definition",
@@ -6049,7 +6079,7 @@ fn test_goto_definition_local_declaration() {
         .map(|(label, position)| ((*label).to_owned(), definition_at(&lsp, path, *position)))
         .collect();
 
-    let workspace_root = lsp.workspace_root.path().to_string_lossy().to_string();
+    let workspace_root = uri_root_form(lsp.workspace_root.path());
     let normalized: Vec<(String, serde_json::Value)> = rows
         .into_iter()
         .map(|(label, value)| (label, normalize_uris(value, &workspace_root)))
@@ -6215,13 +6245,7 @@ fn test_inlay_hint_resolve() {
     );
 
     let resolved = lsp.request("inlayHint/resolve", var_hint);
-    let resolved = normalize_uris(
-        resolved,
-        lsp.workspace_root
-            .path()
-            .to_str()
-            .expect("a UTF-8 workspace root"),
-    );
+    let resolved = normalize_uris(resolved, &uri_root_form(lsp.workspace_root.path()));
 
     // The tooltip and the accepted edit both render the canonical name.
     assert_eq!(resolved["tooltip"], json!("com.example.Text"));
@@ -6309,6 +6333,7 @@ fn test_inlay_hints_disabled_by_config() {
 /// hand-built classfile carries no `MethodParameters` attribute, so `count` can
 /// only have come from the materialized source, and the decompiler is never
 /// started for a library that ships sources.
+#[cfg(unix)] // drives a #!/bin/sh fake tool shim; no Windows shim exists
 #[test]
 fn inlay_hint_names_library_member_from_source() {
     let _env = ENV_LOCK.lock().unwrap_or_else(|err| err.into_inner());
