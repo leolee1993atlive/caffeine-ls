@@ -21,8 +21,10 @@ pub(crate) fn vfs_path(url: &lsp_types::Uri) -> anyhow::Result<vfs::VfsPath> {
 
 /// On Windows, `Url::to_file_path` keeps the drive letter in the case the
 /// client used and can yield a `\\?\` verbatim prefix, so the same file can
-/// compare differently across requests. Normalize to an upper-cased drive and
-/// drop the verbatim prefix; other hosts pass the path through untouched.
+/// compare differently across requests. Normalize to an upper-cased drive,
+/// drop the verbatim prefix, and spell separators as `/` — the canonical form
+/// `to_proto::url` round-trips to (other hosts pass the path through
+/// untouched).
 pub(crate) fn normalize_windows_path(path: PathBuf) -> PathBuf {
     if !cfg!(windows) {
         return path;
@@ -32,14 +34,17 @@ pub(crate) fn normalize_windows_path(path: PathBuf) -> PathBuf {
     match comps.next() {
         Some(Component::Prefix(prefix)) => {
             let drive = match prefix.kind() {
-                Prefix::Disk(d) => d,
-                Prefix::VerbatimDisk(d) => d,
+                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => d,
                 _ => return path,
             };
-            let mut path = PathBuf::new();
-            path.push(format!("{}:", drive.to_ascii_uppercase() as char));
-            path.extend(comps);
-            path
+            let mut out = format!("{}:", drive.to_ascii_uppercase() as char);
+            for comp in comps {
+                if let Component::Normal(part) = comp {
+                    out.push('/');
+                    out.push_str(&part.to_string_lossy());
+                }
+            }
+            PathBuf::from(out)
         }
         _ => path,
     }
