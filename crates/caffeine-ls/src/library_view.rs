@@ -79,6 +79,16 @@ pub(crate) fn relative_to_view(
     path: &AbsPath,
 ) -> Option<(LibraryView, String, String)> {
     let path: &Utf8Path = path.as_ref();
+    // Windows callers mix separators (`join` produces `\`, the vfs and client
+    // URIs carry `/`); the segment splitting below is `/`-based, so both sides
+    // of every comparison must speak one spelling.
+    let normalized_path;
+    let path = if cfg!(windows) {
+        normalized_path = path.as_str().replace('\\', "/");
+        Utf8Path::new(&normalized_path)
+    } else {
+        path
+    };
 
     if let Some(tail) = strip(cache_dir, &LibraryView::Source, path) {
         return split_tail(LibraryView::Source, tail);
@@ -89,7 +99,15 @@ pub(crate) fn relative_to_view(
     let base = cache_dir
         .join("decompile")
         .join(format!("v{DECOMPILE_FORMAT_VERSION}"));
-    let tail = path.strip_prefix(Utf8Path::from_path(&base)?).ok()?;
+    let base = Utf8Path::from_path(&base)?;
+    let normalized_base;
+    let base = if cfg!(windows) {
+        normalized_base = base.as_str().replace('\\', "/");
+        Utf8Path::new(&normalized_base)
+    } else {
+        base
+    };
+    let tail = path.strip_prefix(base).ok()?;
     let (backend, rest) = tail.as_str().split_once('/')?;
     if backend.is_empty() {
         return None;
@@ -118,8 +136,16 @@ fn strip<'a>(
     view: &LibraryView,
     path: &'a Utf8Path,
 ) -> Option<&'a Utf8Path> {
-    path.strip_prefix(Utf8Path::from_path(&view_base(cache_dir, view))?)
-        .ok()
+    let base = view_base(cache_dir, view);
+    let base = Utf8Path::from_path(&base)?;
+    let normalized_base;
+    let base = if cfg!(windows) {
+        normalized_base = base.as_str().replace('\\', "/");
+        Utf8Path::new(&normalized_base)
+    } else {
+        base
+    };
+    path.strip_prefix(base).ok()
 }
 
 /// The URI a file of `view` is served under:
@@ -207,8 +233,23 @@ mod tests {
     const HEX: &str = "0123456789abcdef";
     const SCHEME: &str = "caffeine-ls";
 
+    /// A fake cache root that is absolute on every host: `AbsPath` asserts
+    /// reject `/cache` on Windows, where a drive letter is required.
     fn cache_dir() -> &'static Path {
-        Path::new("/cache")
+        if cfg!(windows) {
+            Path::new("C:/cache")
+        } else {
+            Path::new("/cache")
+        }
+    }
+
+    /// Prefixes a unix-absolute test path with a drive letter on Windows.
+    fn abs(path: &str) -> String {
+        if cfg!(windows) {
+            format!("C:{path}")
+        } else {
+            path.to_owned()
+        }
     }
 
     /// The path of one file of a view, for the round-trip assertions.
@@ -272,8 +313,9 @@ mod tests {
             // A library segment that is not a library id.
             "/cache/sources/v1/not-a-library/com/example/Foo.java",
         ] {
+            let path = abs(path);
             assert!(
-                relative_to_view(cache_dir(), AbsPath::assert(Utf8Path::new(path))).is_none(),
+                relative_to_view(cache_dir(), AbsPath::assert(Utf8Path::new(&path))).is_none(),
                 "{path} names no library view"
             );
         }
