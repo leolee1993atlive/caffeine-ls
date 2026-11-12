@@ -271,6 +271,7 @@ impl GlobalState {
             .on_async::<DefinitionRequest>(handlers::on_goto_definition)
             .on_async::<ReferencesRequest>(handlers::on_references)
             .on_async::<HoverRequest>(handlers::on_hover)
+            .on_async::<CompletionRequest>(handlers::on_completion)
             .on_async::<InlayHintRequest>(handlers::on_inlay_hint)
             .on_async::<InlayHintResolveRequest>(handlers::on_inlay_hint_resolve)
             .on_async::<SemanticTokensRequest>(handlers::on_semantic_tokens)

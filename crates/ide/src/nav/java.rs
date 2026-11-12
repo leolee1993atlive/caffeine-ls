@@ -99,8 +99,9 @@ use hir_expand::{
 };
 use jvm_index::JvmDatabase;
 use jvm_index::hir_def::java::item_tree::{ItemData, ItemId, ItemTree};
+use jvm_index::hir_def::java::modifiers::JavaVisibility;
 
-use ide_db::base_db::{self, LanguageKind};
+use ide_db::base_db::{self, LanguageKind, SourceDatabase};
 use syntax::java::{SyntaxKind as J, translate_unicode_escapes};
 
 use super::{HoverInfo, LibraryFileRef, NavigationTarget, ReferenceTarget, RootDatabase};
@@ -3141,4 +3142,560 @@ pub(crate) fn declaration_name_range(
     let source = parse.syntax_node(language);
     let map = jvm_index::hir_def::db::ast_id_map(db, file, language);
     jvm_index::hir_def::java::ranges::item_name_range(map, &source, &tree, item)
+}
+
+// ---------------------------------------------------------------------------
+// Completion
+//
+
+/// The completion at `offset`: the members the dot at/before it can name.
+///
+/// The receiver is the largest expression that *ends at* the dot — `a.b.` at
+/// the last dot names `a.b`, not `a` — and its type comes from the same
+/// recorded inference hover reads. An offset that is no dot position (a
+/// partial identifier may sit between the dot and the offset; the scan back
+/// over it finds the dot), or a receiver nothing infers, answers no items
+/// rather than an error or a guess.
+pub(crate) fn completion(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+) -> Vec<crate::completion::CompletionItem> {
+    let text = db.file_text(file).text(db).clone();
+    let bytes = text.as_bytes();
+    let mut end = usize::from(offset).min(bytes.len());
+    while end > 0
+        && (bytes[end - 1].is_ascii_alphanumeric() || matches!(bytes[end - 1], b'_' | b'$'))
+    {
+        end -= 1;
+    }
+    if end == 0 || bytes[end - 1] != b'.' {
+        return Vec::new();
+    }
+    let dot = TextSize::new(end as u32 - 1);
+
+    let bodies = jvm_index::file_body_tree(db, file);
+    let Some(receiver) = bodies
+        .expr_ranges
+        .iter()
+        .enumerate()
+        .filter(|(_, range)| range.end() == dot)
+        .max_by_key(|(_, range)| range.len())
+        .map(|(idx, _)| ExprId(ArenaId(idx as u32)))
+    else {
+        return Vec::new();
+    };
+
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+    let mut ty = None;
+    for item in body_items_at(db, file, &tree, offset) {
+        if let Some(body) = hir::body_types(db, file, item)
+            && let Some(inferred) = body.exprs.get(&receiver)
+        {
+            ty = Some(*inferred);
+            break;
+        }
+    }
+    let Some(ty) = ty else {
+        return Vec::new();
+    };
+
+    let site = UseSite {
+        file,
+        package: jvm_index::file_package(db, file),
+    };
+    let mut out = Members::default();
+    members_of_type(db, &site, ty, &mut out);
+    out.items
+}
+
+/// Where completion asks from: the visibility rules' use site ([JLS §6.6.1]).
+struct UseSite {
+    file: FileId,
+    package: Name,
+}
+
+/// The member set under construction. A `(name, descriptor)` is written once,
+/// so each overload stays its own candidate and a repeated class adds nothing;
+/// and a *source* declaration of a name suppresses a same-arity stub member of
+/// that name — the subclass's override, whose classfile descriptor the source
+/// side cannot spell, is the one a dot names ([JLS §8.4.8.1]).
+#[derive(Default)]
+struct Members {
+    seen: FxHashSet<(String, String)>,
+    visited: FxHashSet<String>,
+    source_arity: rustc_hash::FxHashMap<String, usize>,
+    items: Vec<crate::completion::CompletionItem>,
+}
+
+impl Members {
+    fn insert_source(&mut self, item: crate::completion::CompletionItem, name: &str, arity: usize) {
+        self.source_arity.insert(name.to_owned(), arity);
+        if self.seen.insert((name.to_owned(), String::new())) {
+            self.items.push(item);
+        }
+    }
+
+    fn insert_stub(
+        &mut self,
+        item: crate::completion::CompletionItem,
+        name: &str,
+        descriptor: &str,
+        arity: usize,
+    ) {
+        if self.source_arity.get(name) == Some(&arity) {
+            return;
+        }
+        if self.seen.insert((name.to_owned(), descriptor.to_owned())) {
+            self.items.push(item);
+        }
+    }
+}
+
+/// The members of `ty` — its own declaration's members plus every
+/// superclass's and superinterface's ([JLS §8.2], [§9.1.1]), the type layer's
+/// bounds for a type variable ([§4.4]), and each component of an intersection.
+fn members_of_type(db: &RootDatabase, site: &UseSite, ty: Ty, out: &mut Members) {
+    match ty.kind(db) {
+        hir::TyKind::Reference { name, local, .. } => {
+            if let Some(class) = local {
+                members_of_source_class(db, site, *class, None, out);
+                return;
+            }
+            match owner_lookup(db, site.file, name.as_str()) {
+                OwnerLookup::Source(class) => {
+                    members_of_source_class(db, site, class, Some(&name), out);
+                }
+                OwnerLookup::Library { library, fqn, .. } => {
+                    library_members(db, site, library, &fqn, out);
+                }
+                OwnerLookup::Unresolved => {}
+            }
+        }
+        // A type variable names what its bounds do; unbounded names Object's.
+        hir::TyKind::TypeVar { bounds, .. } => {
+            for bound in bounds {
+                members_of_type(db, site, *bound, out);
+            }
+        }
+        hir::TyKind::Intersection(types) => {
+            for ty in types {
+                members_of_type(db, site, *ty, out);
+            }
+        }
+        // An array's members are Object's ([§4.10.5]; `length` is not a
+        // member but an array access the type layer models separately).
+        hir::TyKind::Array(_) => {
+            if let OwnerLookup::Library { library, fqn, .. } =
+                owner_lookup(db, site.file, "java.lang.Object")
+            {
+                library_members(db, site, library, &fqn, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The members the members the source class `class` declares, what its own
+/// build output adds on top (`fqn` naming it; a *local* class has none to
+/// mirror), and its supers' — once per class, however many ways it is
+/// reached.
+fn members_of_source_class(
+    db: &RootDatabase,
+    site: &UseSite,
+    class: jvm_index::SourceClass,
+    fqn: Option<&Name>,
+    out: &mut Members,
+) {
+    let key = format!("src:{:?}:{:?}", class.file, class.item);
+    if !out.visited.insert(key) {
+        return;
+    }
+    let declared = source_members(db, site, class, out);
+    if let Some(fqn) = fqn {
+        mirror_members(db, site, fqn, &declared, out);
+    }
+    source_supers(db, site, class, out);
+}
+
+/// The members the source class's `extends`/`implements` supers declare, and
+/// — as every receiver is an `Object` ([JLS §4.3.2]) — Object's own, which
+/// the visited set keeps an explicit walk from repeating.
+fn source_supers(
+    db: &RootDatabase,
+    site: &UseSite,
+    class: jvm_index::SourceClass,
+    out: &mut Members,
+) {
+    let tree = jvm_index::hir_def::java::plugin::tree(db, class.file);
+    let supers: Vec<&jvm_index::TypeRef<Name>> = match tree.data(class.item) {
+        ItemData::Class(class) | ItemData::Interface(class) => class
+            .super_class
+            .iter()
+            .chain(class.interfaces.iter())
+            .map(|r| &r.ty)
+            .collect(),
+        ItemData::Enum(enum_) => enum_.interfaces.iter().map(|r| &r.ty).collect(),
+        ItemData::Record(record) => record.interfaces.iter().map(|r| &r.ty).collect(),
+        _ => Vec::new(),
+    };
+    for super_ty in supers {
+        let jvm_index::TypeRef::Reference { name, .. } = super_ty else {
+            continue;
+        };
+        match hir::resolve_type_name_at(db, class.file, Some(class.item), name) {
+            hir::NameResolution::Resolved(fqn) | hir::NameResolution::NotAccessible(fqn) => {
+                match owner_lookup(db, site.file, fqn.as_str()) {
+                    OwnerLookup::Source(class) => {
+                        members_of_source_class(db, site, class, None, out)
+                    }
+                    OwnerLookup::Library { library, fqn, .. } => {
+                        library_members(db, site, library, &fqn, out)
+                    }
+                    OwnerLookup::Unresolved => {}
+                }
+            }
+            hir::NameResolution::ResolvedLocal(class) => {
+                members_of_source_class(db, site, class, None, out)
+            }
+            hir::NameResolution::TypeVar
+            | hir::NameResolution::Ambiguous(_)
+            | hir::NameResolution::Unresolved => {}
+        }
+    }
+    if let OwnerLookup::Library { library, fqn, .. } =
+        owner_lookup(db, site.file, "java.lang.Object")
+    {
+        library_members(db, site, library, &fqn, out);
+    }
+}
+
+/// The members the source class `class` declares — its own items, rendered by
+/// the same declaration rendering hover uses. Returns the `(name, descriptor)`
+/// identities it declared, for the bytecode mirror to complete around.
+fn source_members(
+    db: &RootDatabase,
+    site: &UseSite,
+    class: jvm_index::SourceClass,
+    out: &mut Members,
+) -> Vec<(String, String)> {
+    let mut declared = Vec::new();
+    let tree = jvm_index::hir_def::java::plugin::tree(db, class.file);
+    for &member in tree.data(class.item).body().iter() {
+        let data = tree.data(member);
+        let (kind, visibility) = match data {
+            ItemData::Field(field) => (
+                crate::completion::CompletionItemKind::Field,
+                field.modifiers.visibility,
+            ),
+            ItemData::EnumConstant(_) => (
+                crate::completion::CompletionItemKind::Field,
+                JavaVisibility::Public,
+            ),
+            ItemData::Method(method) if !method.is_constructor() => (
+                crate::completion::CompletionItemKind::Method,
+                method.modifiers.visibility,
+            ),
+            _ => continue,
+        };
+        if !visible_from(db, site, class, visibility) {
+            continue;
+        }
+        let Some(name) = data.name() else { continue };
+        let arity = match data {
+            ItemData::Method(method) => method.sig.params.len(),
+            // A field has no parameters.
+            _ => 0,
+        };
+        let detail = declaration_hover(db, class.file, member)
+            .map(|hover| hover.value)
+            .unwrap_or_default();
+        out.insert_source(
+            crate::completion::CompletionItem {
+                label: name.as_str().to_owned(),
+                kind,
+                detail,
+            },
+            name.as_str(),
+            arity,
+        );
+        declared.push((name.as_str().to_owned(), String::new()));
+    }
+    declared
+}
+
+/// The member item the loaded source `owner_item`'s class declares under
+/// `name` with exactly `arity` parameters — the source twin of a stub method
+/// with that shape, whose `sig` carries the parameter *names* the classfile
+/// omits. `None` when no source declares one, or the shape does not pick one
+/// (same-name overloads of one arity).
+fn member_item_by_arity(
+    db: &RootDatabase,
+    file: FileId,
+    owner: ItemId,
+    name: &str,
+    use_kind: Use,
+    arity: usize,
+) -> Option<ItemId> {
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+    let mut candidates = tree.data(owner).body().iter().filter(|&&item| {
+        let data = tree.data(item);
+        let shape_matches = match data {
+            ItemData::Method(method)
+                if matches!(use_kind, Use::Method) && !method.is_constructor() =>
+            {
+                method.sig.params.len() == arity
+            }
+            // A field has no parameters; a matching name is the whole shape.
+            ItemData::Field(_) | ItemData::EnumConstant(_) if matches!(use_kind, Use::Field) => {
+                arity == 0
+            }
+            // Constructors complete through the type-name position, not `.`.
+            _ => false,
+        };
+        shape_matches
+            && data
+                .name()
+                .is_some_and(|declared| declared.as_str() == name)
+    });
+    let first = candidates.next()?;
+    candidates.next().is_none().then_some(*first)
+}
+
+/// Whether `visibility` allows the use site to name a member of `class`
+/// ([JLS §6.6.1]). `protected` stays permissive here: the refinement — same
+/// package or a subclass — needs the subclass walk, and an over-shown
+/// protected member is a miss, not a wrong answer.
+fn visible_from(
+    db: &RootDatabase,
+    site: &UseSite,
+    class: jvm_index::SourceClass,
+    visibility: JavaVisibility,
+) -> bool {
+    match visibility {
+        JavaVisibility::Public | JavaVisibility::Protected => true,
+        // The same file is as close as the item tree can see: a nested class
+        // of the site's own file, or the site's own class.
+        JavaVisibility::Private => class.file == site.file,
+        JavaVisibility::Package => {
+            jvm_index::file_package(db, class.file).as_str() == site.package.as_str()
+        }
+    }
+}
+
+/// The members the classfile stub of `fqn` declares in `library` — the
+/// classpath's, and the mirror's, member set — plus every super's, walked
+/// first-write-wins so an override hides the member it overrides.
+fn library_members(
+    db: &RootDatabase,
+    site: &UseSite,
+    library: jvm_index::LibraryId,
+    fqn: &Name,
+    out: &mut Members,
+) {
+    if !out.visited.insert(fqn.as_str().to_owned()) {
+        return;
+    }
+    let Some(record) = library_owner_stub(db, library, fqn) else {
+        return;
+    };
+    let jvm_index::ClassOrModuleStub::Class(stub) = record.as_ref() else {
+        return;
+    };
+    let interner = &db.hir_state().interner;
+    // A loaded declaring source contributes the parameter *names* the
+    // classfile omits; a pending or sourceless one renders `argN` shapes.
+    let source = match jvm_index::library_source_decl(db, library, fqn.as_str()) {
+        Some(jvm_index::LibrarySourceDecl::Loaded { file, item }) => Some((file, item)),
+        _ => None,
+    };
+    for method in &stub.methods {
+        let name = interner.resolve(&method.name);
+        // §8.8/[JVMS §4.6]: a constructor is `<init>`, static initialization
+        // is `<clinit>` — neither is a member a dot names.
+        if name == "<init>" || name == "<clinit>" || !stub_visible(method.flags, site, fqn) {
+            continue;
+        }
+        let descriptor = interner.resolve(&method.descriptor);
+        let source_item = source.and_then(|(sfile, owner_item)| {
+            member_item_by_arity(
+                db,
+                sfile,
+                owner_item,
+                name,
+                Use::Method,
+                method.params.len(),
+            )
+            .map(|item| (sfile, item))
+        });
+        let detail = library_member_signature(
+            db,
+            library,
+            fqn,
+            name,
+            Use::Method,
+            Some(descriptor),
+            source_item,
+        )
+        .map(|hover| hover.value)
+        .unwrap_or_default();
+        out.insert_stub(
+            crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind: crate::completion::CompletionItemKind::Method,
+                detail,
+            },
+            name,
+            descriptor,
+            method.params.len(),
+        );
+    }
+    for field in &stub.fields {
+        let name = interner.resolve(&field.name);
+        if !stub_visible(field.flags, site, fqn) {
+            continue;
+        }
+        let descriptor = interner.resolve(&field.descriptor);
+        let detail =
+            library_member_signature(db, library, fqn, name, Use::Field, Some(descriptor), None)
+                .map(|hover| hover.value)
+                .unwrap_or_default();
+        out.insert_stub(
+            crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind: crate::completion::CompletionItemKind::Field,
+                detail,
+            },
+            name,
+            descriptor,
+            // A field has no parameters.
+            0,
+        );
+    }
+    for class in stub
+        .super_class
+        .iter()
+        .chain(stub.interfaces.iter())
+        .filter_map(|sup| match sup {
+            jvm_index::TypeRef::Reference { name, .. } => Some(interner.resolve(name)),
+            _ => None,
+        })
+    {
+        // A super resolves in its owner's library first (the JDK's supers sit
+        // beside it), the classpath at large second.
+        let super_name = Name::new(class);
+        if library_owner_stub(db, library, &super_name).is_some() {
+            library_members(db, site, library, &super_name, out);
+        } else if let OwnerLookup::Library { library, fqn, .. } = owner_lookup(db, site.file, class)
+        {
+            library_members(db, site, library, &fqn, out);
+        }
+    }
+}
+
+/// The JVM access flags completion filters on ([JVMS §4.6] table).
+mod access {
+    pub(super) const PUBLIC: u16 = 0x0001;
+    pub(super) const PRIVATE: u16 = 0x0002;
+    pub(super) const PROTECTED: u16 = 0x0004;
+    pub(super) const BRIDGE: u16 = 0x0040;
+    pub(super) const SYNTHETIC: u16 = 0x1000;
+}
+
+/// Whether a stub member's access flags let the use site name it — the
+/// stub-side twin of [`visible_from`]. A synthetic or bridge member is not a
+/// member of the source's contract at all ([JVMS §4.6]).
+fn stub_visible(flags: u16, site: &UseSite, owner_fqn: &Name) -> bool {
+    if flags & (access::BRIDGE | access::SYNTHETIC) != 0 {
+        return false;
+    }
+    if flags & access::PRIVATE != 0 {
+        return false;
+    }
+    if flags & (access::PUBLIC | access::PROTECTED) != 0 {
+        return true;
+    }
+    owner_fqn
+        .as_str()
+        .rsplit_once('.')
+        .is_some_and(|(package, _)| package == site.package.as_str())
+}
+
+/// The members the source set's own build output adds to a *source* owner —
+/// the annotation processors' output, read as bytecode: every stub member the
+/// source does not declare (`declared` holds its identities), never shadowing
+/// one it does.
+fn mirror_members(
+    db: &RootDatabase,
+    site: &UseSite,
+    fqn: &Name,
+    declared: &[(String, String)],
+    out: &mut Members,
+) {
+    let Some(graph) = jvm_index::project_graph(db) else {
+        return;
+    };
+    let Some(source_set) = jvm_index::source_set_for_file(db, site.file) else {
+        return;
+    };
+    let Some(&mirror) = graph.mirror_libraries(db).get(&source_set) else {
+        return;
+    };
+    let Some(record) = library_owner_stub(db, mirror, fqn) else {
+        return;
+    };
+    let jvm_index::ClassOrModuleStub::Class(stub) = record.as_ref() else {
+        return;
+    };
+    let interner = &db.hir_state().interner;
+    let is_declared = |name: &str, descriptor: &str| {
+        declared.iter().any(|(declared_name, declared_descriptor)| {
+            declared_name == name
+                && (declared_descriptor.is_empty() || declared_descriptor == descriptor)
+        })
+    };
+    for method in &stub.methods {
+        let name = interner.resolve(&method.name);
+        if name == "<init>" || name == "<clinit>" || !stub_visible(method.flags, site, fqn) {
+            continue;
+        }
+        let descriptor = interner.resolve(&method.descriptor);
+        if is_declared(name, descriptor) {
+            continue;
+        }
+        let detail =
+            library_member_signature(db, mirror, fqn, name, Use::Method, Some(descriptor), None)
+                .map(|hover| hover.value)
+                .unwrap_or_default();
+        out.insert_stub(
+            crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind: crate::completion::CompletionItemKind::Method,
+                detail,
+            },
+            name,
+            descriptor,
+            method.params.len(),
+        );
+    }
+    for field in &stub.fields {
+        let name = interner.resolve(&field.name);
+        if !stub_visible(field.flags, site, fqn) || is_declared(name, "") {
+            continue;
+        }
+        let detail = library_member_signature(db, mirror, fqn, name, Use::Field, None, None)
+            .map(|hover| hover.value)
+            .unwrap_or_default();
+        out.insert_stub(
+            crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind: crate::completion::CompletionItemKind::Field,
+                detail,
+            },
+            name,
+            "",
+            // A field has no parameters.
+            0,
+        );
+    }
 }

@@ -23,6 +23,7 @@ use triomphe::Arc;
 use vfs::FileId;
 
 mod change;
+pub mod completion;
 pub mod delta;
 pub mod docs;
 pub mod highlight;
@@ -35,6 +36,7 @@ pub mod symbols;
 pub mod workspace;
 
 pub use change::Change;
+pub use completion::{CompletionItem, CompletionItemKind};
 pub use highlight::{Highlight, HlMods, HlTag};
 pub use inlay_hints::{
     InlayHint, InlayHintDetail, InlayHintEdit, InlayHintKind, InlayHintLabelPart, InlayHintsConfig,
@@ -398,6 +400,16 @@ impl Analysis {
         offset: rowan::TextSize,
     ) -> Cancellable<Option<HoverInfo>> {
         self.with_db(|db| nav::hover(db, file_id, offset))
+    }
+
+    /// The completion at `offset` — the members a `receiver.` position can
+    /// name. Serves the LSP `textDocument/completion` request.
+    pub fn completion(
+        &self,
+        file_id: FileId,
+        offset: rowan::TextSize,
+    ) -> Cancellable<Vec<CompletionItem>> {
+        self.with_db(|db| completion::completion(db, file_id, offset))
     }
 
     /// The declaration of the class-like type `fqn` names in `file_id`'s scope

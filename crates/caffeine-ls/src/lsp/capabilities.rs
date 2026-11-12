@@ -43,6 +43,15 @@ pub fn server_capabilities(_config: &Config) -> ServerCapabilities {
         definition_provider: Some(true.into()),
         references_provider: Some(true.into()),
         hover_provider: Some(true.into()),
+        completion_provider: Some(
+            CompletionOptions {
+                // The server answers any position; `.` is the one trigger a
+                // client cannot infer a re-query from on its own.
+                trigger_characters: Some(vec![".".to_string()]),
+                ..Default::default()
+            }
+            .into(),
+        ),
         // The client renders the labels immediately and asks for the tooltips,
         // label-part locations and text edits per hint, on demand.
         inlay_hint_provider: Some(

@@ -307,6 +307,37 @@ pub fn on_hover(state: GlobalStateSnapshot, params: HoverParams) -> anyhow::Resu
     }))
 }
 
+/// `textDocument/completion`: the members a `receiver.` position can name —
+/// source members, classpath members and the bytecode mirror's additions,
+/// with the signatures hover shows. An offset that is no dot position answers
+/// no items rather than an error: the client asks on every keystroke.
+pub fn on_completion(
+    state: GlobalStateSnapshot,
+    params: CompletionParams,
+) -> anyhow::Result<Option<CompletionResponse>> {
+    let pos = params.text_document_position_params;
+    tracing::info!(uri = ?pos.text_document.uri, "request completion");
+    let Some(file_id) = state.url_to_file_id(&pos.text_document.uri)? else {
+        return Ok(None);
+    };
+    let line_index = state.file_line_index(file_id)?;
+    let offset = crate::lsp::from_proto::offset(&line_index, pos.position)?;
+    let items = state.analysis.completion(file_id, offset)?;
+    let items: Vec<CompletionItem> = items
+        .into_iter()
+        .map(|item| CompletionItem {
+            label: item.label,
+            kind: Some(match item.kind {
+                ide::CompletionItemKind::Method => CompletionItemKind::Method,
+                ide::CompletionItemKind::Field => CompletionItemKind::Field,
+            }),
+            detail: Some(item.detail),
+            ..Default::default()
+        })
+        .collect();
+    Ok(Some(items.into()))
+}
+
 /// `textDocument/semanticTokens/full`: the file's semantic tokens — the
 /// resolved classification of every identifier plus the lexical layer
 /// (keywords, modifiers, literals, operators, comments). The result carries a
