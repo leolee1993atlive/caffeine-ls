@@ -330,6 +330,9 @@ pub fn on_completion(
             kind: Some(match item.kind {
                 ide::CompletionItemKind::Method => CompletionItemKind::Method,
                 ide::CompletionItemKind::Field => CompletionItemKind::Field,
+                ide::CompletionItemKind::Variable => CompletionItemKind::Variable,
+                ide::CompletionItemKind::Class => CompletionItemKind::Class,
+                ide::CompletionItemKind::Keyword => CompletionItemKind::Keyword,
             }),
             detail: Some(item.detail),
             ..Default::default()

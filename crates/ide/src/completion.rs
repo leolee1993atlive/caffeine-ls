@@ -1,7 +1,9 @@
 //! Completion at an offset of a file: the members a `receiver.` position can
-//! name. The Java answers come from the same member sets hover and
-//! goto-definition resolve with; a Kotlin file answers nothing until its type
-//! layer records member sets.
+//! name, and — at a non-dot position — the names the surrounding scope can
+//! denote (locals, the enclosing class's members, visible types, keywords).
+//! The Java answers come from the same member sets hover and goto-definition
+//! resolve with; a Kotlin file answers nothing until its type layer records
+//! member sets.
 
 use rowan::TextSize;
 use vfs::FileId;
@@ -24,10 +26,14 @@ pub struct CompletionItem {
 pub enum CompletionItemKind {
     Method,
     Field,
+    Variable,
+    Class,
+    Keyword,
 }
 
-/// The completion at `offset`: the members the dot before it can name, empty
-/// for an offset that is no dot position (or a receiver nothing infers).
+/// The completion at `offset`: the members the dot before it can name, or —
+/// when the offset ends an identifier being typed — the scope's names. Empty
+/// for a position nothing can complete (no word and no dot).
 pub fn completion(db: &RootDatabase, file: FileId, offset: TextSize) -> Vec<CompletionItem> {
     if matches!(
         ide_db::base_db::file_language_kind(db, file),

@@ -3169,11 +3169,23 @@ pub(crate) fn completion(
     {
         end -= 1;
     }
-    if end == 0 || bytes[end - 1] != b'.' {
-        return Vec::new();
+    if end > 0 && bytes[end - 1] == b'.' {
+        return member_completion(db, file, offset, TextSize::new(end as u32 - 1));
     }
-    let dot = TextSize::new(end as u32 - 1);
+    // No dot: the offset ends the identifier being typed (possibly empty) —
+    // the scope's names for that prefix.
+    let word = &text[end..usize::from(offset).min(bytes.len())];
+    scope_completion(db, file, offset, word)
+}
 
+/// The member completion of a dot position: the members the receiver ending
+/// at `dot` can name.
+fn member_completion(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+    dot: TextSize,
+) -> Vec<crate::completion::CompletionItem> {
     let bodies = jvm_index::file_body_tree(db, file);
     let Some(receiver) = bodies
         .expr_ranges
@@ -3208,6 +3220,209 @@ pub(crate) fn completion(
     members_of_type(db, &site, ty, &mut out);
     out.items
 }
+
+/// The completion of a non-dot position: the names the scope at `offset` can
+/// denote for the `word` being typed — locals first, then the enclosing
+/// class's members, visible types, and keywords. A non-empty `word` keeps the
+/// case-insensitive prefixes only, the shape every completion popup refines
+/// from; an empty one lists everything.
+fn scope_completion(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+    word: &str,
+) -> Vec<crate::completion::CompletionItem> {
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+    let bodies = jvm_index::file_body_tree(db, file);
+    let site = UseSite {
+        file,
+        package: jvm_index::file_package(db, file),
+    };
+    let mut out = Members::default();
+
+    // Locals whose scope contains the offset, innermost first (a shadowing
+    // declaration wins the name); the type comes from the same recorded
+    // inference hover reads. The body IR's ranges approximate scope extents,
+    // exactly as hover documents.
+    let mut locals: Vec<(u32, ArenaId, &hir_expand::body::Local)> = bodies
+        .locals
+        .iter()
+        .filter_map(|(id, local)| {
+            let range = bodies.local_range(LocalId(id))?;
+            range
+                .contains_inclusive(offset)
+                .then_some((u32::from(range.len()), id, local))
+        })
+        .collect();
+    locals.sort_by_key(|(len, _, _)| *len);
+    for (_, id, local) in locals {
+        for item in body_items_at(db, file, &tree, offset) {
+            let Some(body) = hir::body_types(db, file, item) else {
+                continue;
+            };
+            if let Some(ty) = body.locals.get(&LocalId(id)) {
+                out.insert_local(
+                    crate::completion::CompletionItem {
+                        label: local.name.as_str().to_owned(),
+                        kind: crate::completion::CompletionItemKind::Variable,
+                        detail: format!("{}: {}", local.name.as_str(), ty.display_simple(db)),
+                    },
+                    local.name.as_str(),
+                );
+                break;
+            }
+        }
+    }
+
+    // The members of the class (chain) the offset sits in.
+    if let Some(item) = items_at(db, file, &tree, offset).into_iter().find(|&item| {
+        matches!(
+            tree.data(item),
+            ItemData::Class(_) | ItemData::Interface(_) | ItemData::Enum(_) | ItemData::Record(_)
+        )
+    }) {
+        members_of_source_class(
+            db,
+            &site,
+            jvm_index::SourceClass { file, item },
+            None,
+            &mut out,
+        );
+    }
+
+    // Visible types: this file's imports, its own package (source and
+    // classpath), and java.lang's implicit ones.
+    let scope = hir::scope_for_file(db, file);
+    let interner = &db.hir_state().interner;
+    for import in &tree.imports {
+        if import.is_static {
+            continue;
+        }
+        if import.is_asterisk {
+            // `java.util.*`: the package's classes, source and classpath.
+            let package = import.name.as_str().trim_end_matches(".*");
+            push_package_types(db, &scope, &Name::new(package), &mut out);
+        } else {
+            // A single-type import names its class directly; no resolution
+            // needed for the label.
+            let full = import.name.as_str();
+            let label = full.rsplit('.').next().unwrap_or(full);
+            out.insert_type(label.to_owned(), full.to_owned());
+        }
+    }
+    if let Some(package) = &tree.package {
+        let source_set = jvm_index::source_set_for_file(db, file);
+        if let Some(files) =
+            source_set.and_then(|set| Some(jvm_index::source_set_package_files(db, set, package)))
+        {
+            for peer in files.iter() {
+                for symbol in jvm_index::file_symbols(db, *peer).iter() {
+                    if matches!(
+                        symbol.kind,
+                        jvm_index::SourceSymbolKind::Class
+                            | jvm_index::SourceSymbolKind::Interface
+                            | jvm_index::SourceSymbolKind::Enum
+                            | jvm_index::SourceSymbolKind::Record
+                    ) {
+                        let fqn = symbol.name.as_str();
+                        let label = fqn.rsplit('.').next().unwrap_or(fqn);
+                        out.insert_type(label.to_owned(), fqn.to_owned());
+                    }
+                }
+            }
+        }
+        push_package_types(db, &scope, package, &mut out);
+    }
+    push_package_types(db, &scope, &Name::new("java.lang"), &mut out);
+
+    for keyword in KEYWORDS {
+        out.insert_keyword(keyword);
+    }
+
+    if word.is_empty() {
+        out.items
+    } else {
+        let word = word.to_lowercase();
+        out.items
+            .into_iter()
+            .filter(|item| item.label.to_lowercase().starts_with(&word))
+            .collect()
+    }
+}
+
+/// Every type of `package` the scope resolves — source files' class-likes and
+/// classpath entries alike — as a `Class` candidate.
+fn push_package_types(
+    db: &RootDatabase,
+    scope: &jvm_index::ResolutionScope,
+    package: &Name,
+    out: &mut Members,
+) {
+    for resolved in jvm_index::classes_in_package(db, scope, package) {
+        let fqn = resolved.fqn(db);
+        let fqn = fqn.as_str();
+        let label = fqn.rsplit('.').next().unwrap_or(fqn);
+        out.insert_type(label.to_owned(), fqn.to_owned());
+    }
+}
+
+/// The keywords and literals of Java ([JLS §3.9], [§3.10.3]–[§3.10.7],
+/// [§3.10.8]); `const` and `goto` are reserved but unusable, and stay.
+const KEYWORDS: &[&str] = &[
+    "abstract",
+    "assert",
+    "boolean",
+    "break",
+    "byte",
+    "case",
+    "catch",
+    "char",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "do",
+    "double",
+    "else",
+    "enum",
+    "extends",
+    "final",
+    "finally",
+    "float",
+    "for",
+    "goto",
+    "if",
+    "implements",
+    "import",
+    "instanceof",
+    "int",
+    "interface",
+    "long",
+    "native",
+    "new",
+    "package",
+    "private",
+    "protected",
+    "public",
+    "return",
+    "short",
+    "static",
+    "strictfp",
+    "super",
+    "switch",
+    "synchronized",
+    "this",
+    "throw",
+    "throws",
+    "transient",
+    "try",
+    "void",
+    "volatile",
+    "while",
+    "true",
+    "false",
+    "null",
+];
 
 /// Where completion asks from: the visibility rules' use site ([JLS §6.6.1]).
 struct UseSite {
@@ -3249,6 +3464,53 @@ impl Members {
         if self.seen.insert((name.to_owned(), descriptor.to_owned())) {
             self.items.push(item);
         }
+    }
+
+    /// A scope candidate that is not a member of any class: the key shares
+    /// the seen set under its own tag, so a local never suppresses a
+    /// same-named class member and vice versa — the popup ranks them by the
+    /// order they were inserted in.
+    fn insert_tagged(
+        &mut self,
+        tag: &str,
+        name: &str,
+        kind: crate::completion::CompletionItemKind,
+        detail: String,
+    ) {
+        if self.seen.insert((format!("{tag}/l/{name}"), String::new())) {
+            self.items.push(crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind,
+                detail,
+            });
+        }
+    }
+
+    /// A local variable in scope.
+    fn insert_local(&mut self, item: crate::completion::CompletionItem, name: &str) {
+        if self.seen.insert((format!("local/l/{name}"), String::new())) {
+            self.items.push(item);
+        }
+    }
+
+    /// A visible type, deduplicated by the simple name it completes under.
+    fn insert_type(&mut self, label: String, detail: String) {
+        self.insert_tagged(
+            "type",
+            &label,
+            crate::completion::CompletionItemKind::Class,
+            detail,
+        );
+    }
+
+    /// A keyword or literal.
+    fn insert_keyword(&mut self, keyword: &str) {
+        self.insert_tagged(
+            "kw",
+            keyword,
+            crate::completion::CompletionItemKind::Keyword,
+            String::new(),
+        );
     }
 }
 
@@ -3425,10 +3687,12 @@ fn source_members(
 }
 
 /// The member item the loaded source `owner_item`'s class declares under
-/// `name` with exactly `arity` parameters — the source twin of a stub method
-/// with that shape, whose `sig` carries the parameter *names* the classfile
-/// omits. `None` when no source declares one, or the shape does not pick one
-/// (same-name overloads of one arity).
+/// `name` matching a stub method's shape — the source twin whose `sig`
+/// carries the parameter *names* the classfile omits. `arity` always
+/// applies; `descriptor_params`, the stub's erased parameter type names
+/// (["Object", "int"], see [`descriptor_param_names`]), disambiguates
+/// same-arity overloads when it is given. `None` when no source declares a
+/// match or the shape does not pick exactly one.
 fn member_item_by_arity(
     db: &RootDatabase,
     file: FileId,
@@ -3436,6 +3700,7 @@ fn member_item_by_arity(
     name: &str,
     use_kind: Use,
     arity: usize,
+    descriptor_params: Option<&[String]>,
 ) -> Option<ItemId> {
     let tree = jvm_index::hir_def::java::plugin::tree(db, file);
     let mut candidates = tree.data(owner).body().iter().filter(|&&item| {
@@ -3445,6 +3710,16 @@ fn member_item_by_arity(
                 if matches!(use_kind, Use::Method) && !method.is_constructor() =>
             {
                 method.sig.params.len() == arity
+                    && match descriptor_params {
+                        // Every erased parameter name must agree; a source
+                        // type variable's erasure is not derivable here, so a
+                        // type-variable parameter leaves the pair unmatched
+                        // and the arity rule below decides.
+                        Some(names) => {
+                            erased_param_names(&method.sig.params).as_deref() == Some(names)
+                        }
+                        None => true,
+                    }
             }
             // A field has no parameters; a matching name is the whole shape.
             ItemData::Field(_) | ItemData::EnumConstant(_) if matches!(use_kind, Use::Field) => {
@@ -3458,29 +3733,135 @@ fn member_item_by_arity(
                 .name()
                 .is_some_and(|declared| declared.as_str() == name)
     });
-    let first = candidates.next()?;
-    candidates.next().is_none().then_some(*first)
+    let first = candidates.next().copied();
+    if first.is_some() {
+        // Exactly one type-matched candidate decides; otherwise the shape was
+        // not fine enough and the caller's arity-only rule (a unique same-name
+        // method) applies as before.
+        if candidates.next().is_none() {
+            return first;
+        }
+        return None;
+    }
+    if descriptor_params.is_some() {
+        // No type match among the same-arity overloads: fall back to a unique
+        // arity-only candidate (source types may differ in spelling).
+        member_item_by_arity(db, file, owner, name, use_kind, arity, None)
+    } else {
+        None
+    }
 }
 
-/// Whether `visibility` allows the use site to name a member of `class`
-/// ([JLS §6.6.1]). `protected` stays permissive here: the refinement — same
-/// package or a subclass — needs the subclass walk, and an over-shown
-/// protected member is a miss, not a wrong answer.
-fn visible_from(
-    db: &RootDatabase,
-    site: &UseSite,
-    class: jvm_index::SourceClass,
-    visibility: JavaVisibility,
-) -> bool {
-    match visibility {
-        JavaVisibility::Public | JavaVisibility::Protected => true,
-        // The same file is as close as the item tree can see: a nested class
-        // of the site's own file, or the site's own class.
-        JavaVisibility::Private => class.file == site.file,
-        JavaVisibility::Package => {
-            jvm_index::file_package(db, class.file).as_str() == site.package.as_str()
-        }
+/// The erased parameter type names of a source method's parameter list:
+/// `String[] x` → "String[]", `java.util.List l` → "List", `T t` → the
+/// type variable's name (not its erasure — see the caller). Varargs and
+/// annotations are ignored. `None` when any parameter's type is a form this
+/// projection cannot name (a wildcard).
+fn erased_param_names(params: &[jvm_index::hir_def::jvm::decl::Param]) -> Option<Vec<String>> {
+    params
+        .iter()
+        .map(|param| erased_type_name(&param.ty.ty))
+        .collect()
+}
+
+fn erased_type_name(ty: &jvm_index::TypeRef<Name>) -> Option<String> {
+    Some(match ty {
+        jvm_index::TypeRef::Primitive(primitive) => primitive_name(*primitive)?.to_owned(),
+        jvm_index::TypeRef::Reference { name, .. } => name
+            .as_str()
+            .rsplit('.')
+            .next()
+            .unwrap_or(name.as_str())
+            .to_owned(),
+        jvm_index::TypeRef::TypeVariable(name) => name.as_str().to_owned(),
+        jvm_index::TypeRef::Array(inner) => format!("{}[]", erased_type_name(inner)?),
+        _ => return None,
+    })
+}
+
+fn primitive_name(primitive: jvm_index::PrimitiveType) -> Option<&'static str> {
+    Some(match primitive {
+        jvm_index::PrimitiveType::Int => "int",
+        jvm_index::PrimitiveType::Long => "long",
+        jvm_index::PrimitiveType::Float => "float",
+        jvm_index::PrimitiveType::Double => "double",
+        jvm_index::PrimitiveType::Boolean => "boolean",
+        jvm_index::PrimitiveType::Byte => "byte",
+        jvm_index::PrimitiveType::Char => "char",
+        jvm_index::PrimitiveType::Short => "short",
+    })
+}
+
+/// The erased parameter type names of a classfile method descriptor
+/// ([JVMS §4.3]): `(Ljava/lang/Object;I)Z` → ["Object", "int"]. `None` when
+/// the descriptor does not parse.
+fn descriptor_param_names(descriptor: &str) -> Option<Vec<String>> {
+    let body = descriptor.strip_prefix('(')?;
+    let end = body.find(')')?;
+    let mut chars = body[..end].chars().peekable();
+    let mut out = Vec::new();
+    while let Some(c) = chars.next() {
+        let name = match c {
+            '[' => {
+                // Array depth first, then the element type; the suffix form
+                // (`LI;[`) is not legal in descriptors and is not parsed.
+                let mut depth = 1usize;
+                while matches!(chars.peek(), Some('[')) {
+                    chars.next();
+                    depth += 1;
+                }
+                let element = match chars.next()? {
+                    'L' => {
+                        let mut simple = String::new();
+                        for next in chars.by_ref() {
+                            match next {
+                                ';' => break,
+                                '/' | '.' => simple.clear(),
+                                other => simple.push(other),
+                            }
+                        }
+                        simple
+                    }
+                    letter => primitive_letter(letter)?.to_owned(),
+                };
+                let mut name = element;
+                for _ in 0..depth {
+                    name = format!("{name}[]");
+                }
+                name
+            }
+            'L' => {
+                let mut simple = String::new();
+                for next in chars.by_ref() {
+                    match next {
+                        ';' => break,
+                        '/' | '.' => simple.clear(),
+                        other => simple.push(other),
+                    }
+                }
+                simple
+            }
+            letter => primitive_letter(letter)?.to_owned(),
+        };
+        out.push(name);
     }
+    Some(out)
+}
+
+/// The erased type name of one descriptor primitive letter
+/// ([JVMS §4.3.2]); a reference letter is not a primitive.
+fn primitive_letter(letter: char) -> Option<&'static str> {
+    Some(match letter {
+        'B' => "byte",
+        'C' => "char",
+        'D' => "double",
+        'F' => "float",
+        'I' => "int",
+        'J' => "long",
+        'S' => "short",
+        'Z' => "boolean",
+        _ => return None,
+    })
 }
 
 /// The members the classfile stub of `fqn` declares in `library` — the
@@ -3517,6 +3898,7 @@ fn library_members(
             continue;
         }
         let descriptor = interner.resolve(&method.descriptor);
+        let descriptor_params = descriptor_param_names(descriptor);
         let source_item = source.and_then(|(sfile, owner_item)| {
             member_item_by_arity(
                 db,
@@ -3525,6 +3907,7 @@ fn library_members(
                 name,
                 Use::Method,
                 method.params.len(),
+                descriptor_params.as_deref(),
             )
             .map(|item| (sfile, item))
         });
@@ -3697,5 +4080,47 @@ fn mirror_members(
             // A field has no parameters.
             0,
         );
+    }
+}
+
+/// Whether `visibility` allows the use site to name a member of `class`
+/// ([JLS §6.6.1]). `protected` stays permissive here: the refinement — same
+/// package or a subclass — needs the subclass walk, and an over-shown
+/// protected member is a miss, not a wrong answer.
+fn visible_from(
+    db: &RootDatabase,
+    site: &UseSite,
+    class: jvm_index::SourceClass,
+    visibility: JavaVisibility,
+) -> bool {
+    match visibility {
+        JavaVisibility::Public | JavaVisibility::Protected => true,
+        // The same file is as close as the item tree can see: a nested class
+        // of the site's own file, or the site's own class.
+        JavaVisibility::Private => class.file == site.file,
+        JavaVisibility::Package => {
+            jvm_index::file_package(db, class.file).as_str() == site.package.as_str()
+        }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::descriptor_param_names;
+
+    #[test]
+    fn descriptor_params_parse_primitives_references_and_arrays() {
+        assert_eq!(descriptor_param_names("(I)V"), Some(vec!["int".to_owned()]));
+        assert_eq!(
+            descriptor_param_names("(Ljava/lang/Object;I)Z"),
+            Some(vec!["Object".to_owned(), "int".to_owned()])
+        );
+        assert_eq!(
+            descriptor_param_names("([Ljava/lang/String;J)V"),
+            Some(vec!["String[]".to_owned(), "long".to_owned()])
+        );
+        assert_eq!(descriptor_param_names("()V"), Some(Vec::new()));
+        // A descriptor without a parameter list does not parse.
+        assert_eq!(descriptor_param_names("broken"), None);
     }
 }
