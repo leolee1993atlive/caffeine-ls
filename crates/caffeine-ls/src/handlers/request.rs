@@ -325,17 +325,29 @@ pub fn on_completion(
     let items = state.analysis.completion(file_id, offset)?;
     let items: Vec<CompletionItem> = items
         .into_iter()
-        .map(|item| CompletionItem {
-            label: item.label,
-            kind: Some(match item.kind {
-                ide::CompletionItemKind::Method => CompletionItemKind::Method,
-                ide::CompletionItemKind::Field => CompletionItemKind::Field,
-                ide::CompletionItemKind::Variable => CompletionItemKind::Variable,
-                ide::CompletionItemKind::Class => CompletionItemKind::Class,
-                ide::CompletionItemKind::Keyword => CompletionItemKind::Keyword,
-            }),
-            detail: Some(item.detail),
-            ..Default::default()
+        .map(|item| {
+            // A classpath type candidate's import insert: the ide layer hands
+            // the byte offset the line goes at; this layer owns the line index.
+            let additional_text_edits = item.import_edit.map(|(offset, text)| {
+                let position = to_proto::position(&line_index, rowan::TextSize::new(offset as u32));
+                vec![TextEdit::new(
+                    lsp_types::Range::new(position, position),
+                    text,
+                )]
+            });
+            CompletionItem {
+                label: item.label,
+                kind: Some(match item.kind {
+                    ide::CompletionItemKind::Method => CompletionItemKind::Method,
+                    ide::CompletionItemKind::Field => CompletionItemKind::Field,
+                    ide::CompletionItemKind::Variable => CompletionItemKind::Variable,
+                    ide::CompletionItemKind::Class => CompletionItemKind::Class,
+                    ide::CompletionItemKind::Keyword => CompletionItemKind::Keyword,
+                }),
+                detail: Some(item.detail),
+                additional_text_edits,
+                ..Default::default()
+            }
         })
         .collect();
     Ok(Some(items.into()))

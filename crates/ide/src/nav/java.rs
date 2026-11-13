@@ -3266,6 +3266,7 @@ fn scope_completion(
                         label: local.name.as_str().to_owned(),
                         kind: crate::completion::CompletionItemKind::Variable,
                         detail: format!("{}: {}", local.name.as_str(), ty.display_simple(db)),
+                        import_edit: None,
                     },
                     local.name.as_str(),
                 );
@@ -3335,6 +3336,13 @@ fn scope_completion(
     }
     push_package_types(db, &scope, &Name::new("java.lang"), &mut out);
 
+    // Classpath types the scope does not see: searched only under a typed
+    // word (an empty word would enumerate every class of every JAR), capped
+    // so a one-letter prefix does not flood the popup.
+    if !word.is_empty() {
+        classpath_type_candidates(db, file, word, &mut out);
+    }
+
     for keyword in KEYWORDS {
         out.insert_keyword(keyword);
     }
@@ -3364,6 +3372,80 @@ fn push_package_types(
         let label = fqn.rsplit('.').next().unwrap_or(fqn);
         out.insert_type(label.to_owned(), fqn.to_owned());
     }
+}
+
+/// The classpath's (and the bytecode mirror's) classes whose simple name
+/// starts with the word being typed — the types the file has not imported
+/// yet. A candidate from a package that needs an import carries the edit that
+/// inserts it; same-package and `java.lang` types never do. Capped at
+/// `MAX_CLASSPATH_TYPES` candidates; the popup's own ranking breaks ties.
+fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &mut Members) {
+    const MAX_CLASSPATH_TYPES: usize = 50;
+    let Some(source_set) = jvm_index::source_set_for_file(db, file) else {
+        return;
+    };
+    // The mirror is read before the source set moves into the classpath call.
+    let mirror = jvm_index::project_graph(db)
+        .and_then(|graph| graph.mirror_libraries(db).get(&source_set).copied());
+    let mut libraries = jvm_index::classpath_libraries(db, source_set);
+    // The mirror holds the annotation processors' generated types (a Lombok
+    // builder), which live on the classpath of no library.
+    if let Some(mirror) = mirror {
+        libraries.push(mirror);
+    }
+    let interner = &db.hir_state().interner;
+    let file_package = jvm_index::file_package(db, file);
+    let insert_offset = import_insert_offset(db, file);
+    let word = word.to_lowercase();
+    let mut pushed = 0usize;
+    for library in libraries {
+        for entry in jvm_index::library_name_index(db, library).entries() {
+            if pushed >= MAX_CLASSPATH_TYPES {
+                return;
+            }
+            let fqn = interner.resolve(&entry.fqn);
+            let label = fqn.rsplit('.').next().unwrap_or(fqn);
+            if !label.to_lowercase().starts_with(&word) {
+                continue;
+            }
+            let package = interner.resolve(&entry.package);
+            let import_edit = if package == file_package.as_str() || package == "java.lang" {
+                None
+            } else {
+                insert_offset.map(|offset| {
+                    (
+                        offset,
+                        format!(
+                            "import {fqn};
+"
+                        ),
+                    )
+                })
+            };
+            out.insert_classpath_type(label, fqn, import_edit);
+            pushed += 1;
+        }
+    }
+}
+
+/// The byte offset a new `import` line inserts at: after the last existing
+/// import, else after the package declaration, else the file start. The
+/// position is a text scan, so a malformed declaration degrades to the next
+/// anchor rather than failing the completion.
+fn import_insert_offset(db: &RootDatabase, file: FileId) -> Option<usize> {
+    let text: &str = &db.file_text(file).text(db);
+    let mut insert = None;
+    let mut offset = 0usize;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if (trimmed.starts_with("package ") || trimmed.starts_with("import "))
+            && line.trim_end().ends_with(';')
+        {
+            insert = Some(offset + line.len());
+        }
+        offset += line.len();
+    }
+    insert
 }
 
 /// The keywords and literals of Java ([JLS §3.9], [§3.10.3]–[§3.10.7],
@@ -3440,6 +3522,9 @@ struct Members {
     seen: FxHashSet<(String, String)>,
     visited: FxHashSet<String>,
     source_arity: rustc_hash::FxHashMap<String, usize>,
+    /// The simple names a visible type already completed under, so a
+    /// classpath twin of a visible type never doubles it.
+    type_labels: FxHashSet<String>,
     items: Vec<crate::completion::CompletionItem>,
 }
 
@@ -3482,6 +3567,7 @@ impl Members {
                 label: name.to_owned(),
                 kind,
                 detail,
+                import_edit: None,
             });
         }
     }
@@ -3495,12 +3581,35 @@ impl Members {
 
     /// A visible type, deduplicated by the simple name it completes under.
     fn insert_type(&mut self, label: String, detail: String) {
+        self.type_labels.insert(label.to_lowercase());
         self.insert_tagged(
             "type",
             &label,
             crate::completion::CompletionItemKind::Class,
             detail,
         );
+    }
+
+    /// A classpath type the scope does not already see: deduplicated by FQN
+    /// (same simple name in two packages completes twice, the way the user
+    /// chooses between them), suppressed when a visible type owns the label.
+    fn insert_classpath_type(
+        &mut self,
+        label: &str,
+        fqn: &str,
+        import_edit: Option<(usize, String)>,
+    ) {
+        if self.type_labels.contains(&label.to_lowercase()) {
+            return;
+        }
+        if self.seen.insert((format!("cpfqn/l/{fqn}"), String::new())) {
+            self.items.push(crate::completion::CompletionItem {
+                label: label.to_owned(),
+                kind: crate::completion::CompletionItemKind::Class,
+                detail: fqn.to_owned(),
+                import_edit,
+            });
+        }
     }
 
     /// A keyword or literal.
@@ -3677,6 +3786,7 @@ fn source_members(
                 label: name.as_str().to_owned(),
                 kind,
                 detail,
+                import_edit: None,
             },
             name.as_str(),
             arity,
@@ -3927,6 +4037,7 @@ fn library_members(
                 label: name.to_owned(),
                 kind: crate::completion::CompletionItemKind::Method,
                 detail,
+                import_edit: None,
             },
             name,
             descriptor,
@@ -3948,6 +4059,7 @@ fn library_members(
                 label: name.to_owned(),
                 kind: crate::completion::CompletionItemKind::Field,
                 detail,
+                import_edit: None,
             },
             name,
             descriptor,
@@ -4055,6 +4167,7 @@ fn mirror_members(
                 label: name.to_owned(),
                 kind: crate::completion::CompletionItemKind::Method,
                 detail,
+                import_edit: None,
             },
             name,
             descriptor,
@@ -4074,6 +4187,7 @@ fn mirror_members(
                 label: name.to_owned(),
                 kind: crate::completion::CompletionItemKind::Field,
                 detail,
+                import_edit: None,
             },
             name,
             "",

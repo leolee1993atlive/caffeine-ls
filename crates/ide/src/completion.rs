@@ -19,6 +19,10 @@ pub struct CompletionItem {
     pub kind: CompletionItemKind,
     /// The member's rendered signature — the same rendering hover shows.
     pub detail: String,
+    /// The import a classpath type candidate needs on accept: the byte
+    /// offset the `import` line inserts at, and the line's text. `None` for
+    /// every candidate that needs no import.
+    pub import_edit: Option<(usize, String)>,
 }
 
 /// The kind of a [`CompletionItem`].
