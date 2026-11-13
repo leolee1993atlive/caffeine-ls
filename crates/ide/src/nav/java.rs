@@ -3169,13 +3169,35 @@ pub(crate) fn completion(
     {
         end -= 1;
     }
-    if end > 0 && bytes[end - 1] == b'.' {
-        return member_completion(db, file, offset, TextSize::new(end as u32 - 1));
-    }
-    // No dot: the offset ends the identifier being typed (possibly empty) —
-    // the scope's names for that prefix.
-    let word = &text[end..usize::from(offset).min(bytes.len())];
-    scope_completion(db, file, offset, word)
+    let items = if end > 0 && bytes[end - 1] == b'.' {
+        member_completion(db, file, offset, TextSize::new(end as u32 - 1))
+    } else {
+        // No dot: the offset ends the identifier being typed (possibly empty) —
+        // the scope's names for that prefix.
+        let word = &text[end..usize::from(offset).min(bytes.len())];
+        scope_completion(db, file, offset, word)
+    };
+    rank(items)
+}
+
+/// Popup order: locals rank above members above types above keywords, and
+/// each tier is case-insensitively alphabetical — the ordering every
+/// completion popup refines, and the one jdtls's plain member lists follow.
+fn rank(items: Vec<crate::completion::CompletionItem>) -> Vec<crate::completion::CompletionItem> {
+    let tier = |kind: crate::completion::CompletionItemKind| match kind {
+        crate::completion::CompletionItemKind::Variable => 0u8,
+        crate::completion::CompletionItemKind::Method
+        | crate::completion::CompletionItemKind::Field => 1,
+        crate::completion::CompletionItemKind::Class => 2,
+        crate::completion::CompletionItemKind::Keyword => 3,
+    };
+    let mut sorted = items;
+    sorted.sort_by(|a, b| {
+        tier(a.kind)
+            .cmp(&tier(b.kind))
+            .then_with(|| a.label.to_lowercase().cmp(&b.label.to_lowercase()))
+    });
+    sorted
 }
 
 /// The member completion of a dot position: the members the receiver ending
@@ -3187,37 +3209,77 @@ fn member_completion(
     dot: TextSize,
 ) -> Vec<crate::completion::CompletionItem> {
     let bodies = jvm_index::file_body_tree(db, file);
-    let Some(receiver) = bodies
+    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+    let receiver = bodies
         .expr_ranges
         .iter()
         .enumerate()
         .filter(|(_, range)| range.end() == dot)
         .max_by_key(|(_, range)| range.len())
-        .map(|(idx, _)| ExprId(ArenaId(idx as u32)))
-    else {
-        return Vec::new();
-    };
-
-    let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+        .map(|(idx, _)| ExprId(ArenaId(idx as u32)));
     let mut ty = None;
-    for item in body_items_at(db, file, &tree, offset) {
-        if let Some(body) = hir::body_types(db, file, item)
-            && let Some(inferred) = body.exprs.get(&receiver)
-        {
-            ty = Some(*inferred);
-            break;
+    if let Some(receiver) = receiver {
+        for item in body_items_at(db, file, &tree, offset) {
+            if let Some(body) = hir::body_types(db, file, item)
+                && let Some(inferred) = body.exprs.get(&receiver)
+            {
+                ty = Some(*inferred);
+                break;
+            }
         }
     }
-    let Some(ty) = ty else {
-        return Vec::new();
-    };
-
+    // An Error type is the inference layer's "no answer": the type-name
+    // fallback below may still resolve the receiver word.
+    if ty.is_some_and(|ty| matches!(ty.kind(db), hir::TyKind::Error)) {
+        ty = None;
+    }
     let site = UseSite {
         file,
         package: jvm_index::file_package(db, file),
+        instance_receiver: ty.is_some(),
     };
     let mut out = Members::default();
-    members_of_type(db, &site, ty, &mut out);
+    match ty {
+        Some(ty) => members_of_type(db, &site, ty, &mut out),
+        // No inferred type: the receiver may be a plain TYPE NAME — the
+        // static-call (`Convert.toStr(x)`) and class-literal (`Long.class`)
+        // shapes, whose receiver is not an expression the body inference
+        // records. Resolve the word before the dot as a type in this scope.
+        None => {
+            let text = db.file_text(file).text(db).clone();
+            let bytes = text.as_bytes();
+            let mut recv_start = usize::from(dot);
+            while recv_start > 0
+                && (bytes[recv_start - 1].is_ascii_alphanumeric()
+                    || matches!(bytes[recv_start - 1], b'_' | b'$'))
+            {
+                recv_start -= 1;
+            }
+            if recv_start < usize::from(dot) {
+                let word = &text[recv_start..usize::from(dot)];
+                if !word.is_empty() {
+                    let item = items_at(db, file, &tree, dot).into_iter().next();
+                    let resolution = hir::resolve_type_name_at(db, file, item, &Name::new(word));
+                    let fqn = match resolution {
+                        hir::NameResolution::Resolved(fqn)
+                        | hir::NameResolution::NotAccessible(fqn) => Some(fqn),
+                        _ => None,
+                    };
+                    if let Some(fqn) = fqn {
+                        match owner_lookup(db, site.file, fqn.as_str()) {
+                            OwnerLookup::Source(class) => {
+                                members_of_source_class(db, &site, class, None, &mut out)
+                            }
+                            OwnerLookup::Library { library, fqn, .. } => {
+                                library_members(db, &site, library, &fqn, &mut out)
+                            }
+                            OwnerLookup::Unresolved => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
     out.items
 }
 
@@ -3237,6 +3299,7 @@ fn scope_completion(
     let site = UseSite {
         file,
         package: jvm_index::file_package(db, file),
+        instance_receiver: false,
     };
     let mut out = Members::default();
 
@@ -3396,7 +3459,7 @@ fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &
     let interner = &db.hir_state().interner;
     let file_package = jvm_index::file_package(db, file);
     let insert_offset = import_insert_offset(db, file);
-    let word = word.to_lowercase();
+    let word = word.to_owned();
     let mut pushed = 0usize;
     for library in libraries {
         for entry in jvm_index::library_name_index(db, library).entries() {
@@ -3404,8 +3467,13 @@ fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &
                 return;
             }
             let fqn = interner.resolve(&entry.fqn);
+            // Inner classes are not what a typed prefix is looking for; the
+            // enclosing type's own completion covers them.
+            if fqn.contains('$') {
+                continue;
+            }
             let label = fqn.rsplit('.').next().unwrap_or(fqn);
-            if !label.to_lowercase().starts_with(&word) {
+            if !label.starts_with(word.as_str()) {
                 continue;
             }
             let package = interner.resolve(&entry.package);
@@ -3507,9 +3575,14 @@ const KEYWORDS: &[&str] = &[
 ];
 
 /// Where completion asks from: the visibility rules' use site ([JLS §6.6.1]).
+/// `instance_receiver` says the members are named through an *instance*
+/// (`str.length()`), where a `static` member is not part of what the
+/// receiver exposes ([JLS §6.5.6.2] convention; javac allows, IDEs hide) —
+/// a type-name receiver and an unqualified scope lookup see both.
 struct UseSite {
     file: FileId,
     package: Name,
+    instance_receiver: bool,
 }
 
 /// The member set under construction. A `(name, descriptor)` is written once,
@@ -3770,6 +3843,17 @@ fn source_members(
             _ => continue,
         };
         if !visible_from(db, site, class, visibility) {
+            continue;
+        }
+        // A static member is not part of what an instance receiver exposes.
+        if site.instance_receiver
+            && matches!(
+                data,
+                ItemData::Method(method) if method.modifiers.flags.contains(
+                    jvm_index::hir_def::java::modifiers::JavaModifierFlags::STATIC
+                )
+            )
+        {
             continue;
         }
         let Some(name) = data.name() else { continue };
@@ -4097,11 +4181,17 @@ mod access {
     pub(super) const SYNTHETIC: u16 = 0x1000;
 }
 
+const ACC_STATIC: u16 = 0x0008;
+
 /// Whether a stub member's access flags let the use site name it — the
 /// stub-side twin of [`visible_from`]. A synthetic or bridge member is not a
-/// member of the source's contract at all ([JVMS §4.6]).
+/// member of the source's contract at all ([JVMS §4.6]), and a static member
+/// is not part of what an instance receiver exposes.
 fn stub_visible(flags: u16, site: &UseSite, owner_fqn: &Name) -> bool {
     if flags & (access::BRIDGE | access::SYNTHETIC) != 0 {
+        return false;
+    }
+    if site.instance_receiver && flags & ACC_STATIC != 0 {
         return false;
     }
     if flags & access::PRIVATE != 0 {
