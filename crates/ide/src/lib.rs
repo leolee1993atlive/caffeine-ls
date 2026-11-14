@@ -402,6 +402,18 @@ impl Analysis {
         self.with_db(|db| nav::hover(db, file_id, offset))
     }
 
+    /// The rename of the symbol at `offset` — every position the workspace
+    /// writes its name, or `Err` explaining why the position or the new name
+    /// cannot rename. Serves the LSP `textDocument/rename` request.
+    pub fn rename(
+        &self,
+        file_id: FileId,
+        offset: rowan::TextSize,
+        new_name: &str,
+    ) -> Cancellable<Result<Vec<(FileId, rowan::TextRange)>, String>> {
+        self.with_db(|db| nav::java::rename(db, file_id, offset, new_name))
+    }
+
     /// The completion at `offset` — the members a `receiver.` position can
     /// name. Serves the LSP `textDocument/completion` request.
     pub fn completion(

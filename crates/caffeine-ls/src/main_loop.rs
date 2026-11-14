@@ -271,6 +271,8 @@ impl GlobalState {
             .on_async::<DefinitionRequest>(handlers::on_goto_definition)
             .on_async::<ReferencesRequest>(handlers::on_references)
             .on_async::<HoverRequest>(handlers::on_hover)
+            .on_async::<RenameRequest>(handlers::on_rename)
+            .on_async::<PrepareRenameRequest>(handlers::on_prepare_rename)
             .on_async::<CompletionRequest>(handlers::on_completion)
             .on_async::<InlayHintRequest>(handlers::on_inlay_hint)
             .on_async::<InlayHintResolveRequest>(handlers::on_inlay_hint_resolve)
@@ -1412,16 +1414,13 @@ impl GlobalState {
                 let library_id = match classdir_library_id(mirror_path) {
                     Ok(id) => id,
                     Err(error) => {
-                        tracing::warn!(
-                            "skipping bytecode mirror {}: {error}",
-                            mirror_dir.as_str()
-                        );
+                        tracing::warn!("skipping bytecode mirror {}: {error}", mirror_dir.as_str());
                         continue;
                     }
                 };
-                data.libraries.entry(library_id).or_insert_with(|| {
-                    LibraryInfo::new(LibraryKind::ClassDir, mirror_dir.clone())
-                });
+                data.libraries
+                    .entry(library_id)
+                    .or_insert_with(|| LibraryInfo::new(LibraryKind::ClassDir, mirror_dir.clone()));
                 data.mirror_libraries.insert(
                     SourceSetId {
                         project: project.id,

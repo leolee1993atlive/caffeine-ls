@@ -43,6 +43,7 @@ pub fn server_capabilities(_config: &Config) -> ServerCapabilities {
         definition_provider: Some(true.into()),
         references_provider: Some(true.into()),
         hover_provider: Some(true.into()),
+        rename_provider: Some(true.into()),
         completion_provider: Some(
             CompletionOptions {
                 // The server answers any position; `.` is the one trigger a

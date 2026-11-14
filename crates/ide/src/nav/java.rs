@@ -3331,8 +3331,8 @@ fn scope_completion(
                         kind: crate::completion::CompletionItemKind::Variable,
                         detail: format!("{}: {}", local.name.as_str(), ty.display_simple(db)),
                         import_edit: None,
-                    insert_text: None,
-                    docs: None,
+                        insert_text: None,
+                        docs: None,
                     },
                     local.name.as_str(),
                 );
@@ -3606,8 +3606,16 @@ fn humps(name: &str) -> Vec<char> {
 /// purpose — context-aware templates need the enclosing scope model.
 const SNIPPETS: &[(&str, &str, &str)] = &[
     ("sout", "System.out.println();", "print to stdout"),
-    ("fori", "for (int i = 0; i < ; i++) {\n    \n}", "counted for loop"),
-    ("psvm", "public static void main(String[] args) {\n    \n}", "main method"),
+    (
+        "fori",
+        "for (int i = 0; i < ; i++) {\n    \n}",
+        "counted for loop",
+    ),
+    (
+        "psvm",
+        "public static void main(String[] args) {\n    \n}",
+        "main method",
+    ),
 ];
 
 /// The keywords and literals of Java ([JLS §3.9], [§3.10.3]–[§3.10.7],
@@ -3735,8 +3743,8 @@ impl Members {
                 kind,
                 detail,
                 import_edit: None,
-            insert_text: None,
-            docs: None,
+                insert_text: None,
+                docs: None,
             });
         }
     }
@@ -3778,7 +3786,7 @@ impl Members {
                 detail: fqn.to_owned(),
                 import_edit,
                 insert_text: None,
-            docs: None,
+                docs: None,
             });
         }
     }
@@ -3975,7 +3983,10 @@ fn source_members(
             _ => 0,
         };
         let hover = declaration_hover(db, class.file, member);
-        let detail = hover.as_ref().map(|hover| hover.value.clone()).unwrap_or_default();
+        let detail = hover
+            .as_ref()
+            .map(|hover| hover.value.clone())
+            .unwrap_or_default();
         out.insert_source(
             crate::completion::CompletionItem {
                 label: name.as_str().to_owned(),
@@ -4427,6 +4438,56 @@ fn visible_from(
             jvm_index::file_package(db, class.file).as_str() == site.package.as_str()
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Rename
+//
+
+/// The rename of the symbol at `offset`: every position the workspace writes
+/// its name — the declaration's own token and each reference — as (file,
+/// range) pairs the LSP layer turns into per-file text edits. `Err` explains
+/// why the position or the new name cannot rename.
+pub(crate) fn rename(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+    new_name: &str,
+) -> Result<Vec<(FileId, TextRange)>, String> {
+    // Nothing to rename: the position names no symbol (a keyword, a literal,
+    // whitespace, a package name).
+    let found = definition(db, file, offset);
+    if found.is_empty() {
+        return Err("no symbol at this position".to_owned());
+    }
+    validate_identifier(new_name)?;
+    let refs = references(db, file, offset, true);
+    Ok(refs.into_iter().map(|hit| (hit.file, hit.range)).collect())
+}
+
+/// A Java identifier ([JLS §3.8]): a letter, `$` or `_` first, then those or
+/// digits, and no keyword.
+fn validate_identifier(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_alphabetic() || c == '$' || c == '_' => {}
+        _ => {
+            return Err(format!(
+                "{name:?} is not a valid Java identifier: the first character must be a letter, `$` or `_`"
+            ));
+        }
+    }
+    for c in chars {
+        if !(c.is_alphanumeric() || c == '$' || c == '_') {
+            return Err(format!(
+                "{name:?} is not a valid Java identifier: unexpected {c:?}"
+            ));
+        }
+    }
+    if KEYWORDS.contains(&name) {
+        return Err(format!("{name:?} is a Java keyword"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

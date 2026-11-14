@@ -307,6 +307,68 @@ pub fn on_hover(state: GlobalStateSnapshot, params: HoverParams) -> anyhow::Resu
     }))
 }
 
+/// `textDocument/prepareRename`: the range and placeholder of the symbol at
+/// the position — the client's gate for opening the rename dialog. `None`
+/// when the position names no symbol.
+pub fn on_prepare_rename(
+    state: GlobalStateSnapshot,
+    params: PrepareRenameParams,
+) -> anyhow::Result<Option<PrepareRenameResult>> {
+    let pos = params.text_document_position_params;
+    tracing::info!(uri = ?pos.text_document.uri, "request prepare rename");
+    let Some(file_id) = state.url_to_file_id(&pos.text_document.uri)? else {
+        return Ok(None);
+    };
+    let line_index = state.file_line_index(file_id)?;
+    let offset = crate::lsp::from_proto::offset(&line_index, pos.position)?;
+    let targets = state.analysis.goto_definition(file_id, offset)?;
+    let Some(target) = targets.first() else {
+        return Ok(None);
+    };
+    Ok(Some(PrepareRenameResult::from(
+        PrepareRenamePlaceholder::new(
+            to_proto::range(&line_index, target.range),
+            target.name.clone(),
+        ),
+    )))
+}
+
+/// `textDocument/rename`: every workspace position the symbol's name is
+/// written at, as per-file text edits. An invalid name or an unresolvable
+/// position fails the request with the reason.
+pub fn on_rename(
+    state: GlobalStateSnapshot,
+    params: RenameParams,
+) -> anyhow::Result<Option<WorkspaceEdit>> {
+    let pos = params.text_document_position_params;
+    tracing::info!(uri = ?pos.text_document.uri, new_name = %params.new_name, "request rename");
+    let Some(file_id) = state.url_to_file_id(&pos.text_document.uri)? else {
+        return Ok(None);
+    };
+    let line_index = state.file_line_index(file_id)?;
+    let offset = crate::lsp::from_proto::offset(&line_index, pos.position)?;
+    let edits = match state.analysis.rename(file_id, offset, &params.new_name)? {
+        Ok(edits) => edits,
+        Err(reason) => anyhow::bail!(reason),
+    };
+    // Per-file text edits, each against its file's own line index.
+    let mut changes: std::collections::HashMap<Uri, Vec<TextEdit>> =
+        std::collections::HashMap::new();
+    for (file, range) in edits {
+        let uri = state.file_id_to_url(file)?;
+        let file_index = state.file_line_index(file)?;
+        let range = to_proto::range(&file_index, range);
+        changes
+            .entry(uri)
+            .or_default()
+            .push(TextEdit::new(range, params.new_name.clone()));
+    }
+    Ok(Some(WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    }))
+}
+
 /// `textDocument/completion`: the members a `receiver.` position can name —
 /// source members, classpath members and the bytecode mirror's additions,
 /// with the signatures hover shows. An offset that is no dot position answers
