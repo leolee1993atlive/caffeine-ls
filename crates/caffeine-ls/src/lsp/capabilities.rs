@@ -44,6 +44,14 @@ pub fn server_capabilities(_config: &Config) -> ServerCapabilities {
         references_provider: Some(true.into()),
         hover_provider: Some(true.into()),
         rename_provider: Some(true.into()),
+        document_highlight_provider: Some(true.into()),
+        signature_help_provider: Some(
+            SignatureHelpOptions {
+                trigger_characters: Some(vec![",".to_string()]),
+                ..Default::default()
+            }
+            .into(),
+        ),
         completion_provider: Some(
             CompletionOptions {
                 // The server answers any position; `.` is the one trigger a

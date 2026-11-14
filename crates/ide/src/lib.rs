@@ -32,6 +32,7 @@ pub mod java;
 pub mod kotlin;
 pub mod lang;
 pub mod nav;
+pub mod signature;
 pub mod symbols;
 pub mod workspace;
 
@@ -400,6 +401,28 @@ impl Analysis {
         offset: rowan::TextSize,
     ) -> Cancellable<Option<HoverInfo>> {
         self.with_db(|db| nav::hover(db, file_id, offset))
+    }
+
+    /// The document highlight of the symbol at `offset` — every position of
+    /// the file that names the same declaration. Serves the LSP
+    /// `textDocument/documentHighlight` request.
+    pub fn document_highlight(
+        &self,
+        file_id: FileId,
+        offset: rowan::TextSize,
+    ) -> Cancellable<Vec<rowan::TextRange>> {
+        self.with_db(|db| nav::java::document_highlight(db, file_id, offset))
+    }
+
+    /// The signature help at `offset` — the candidates of the invocation the
+    /// offset sits inside, or `None` when it is not inside one. Serves the
+    /// LSP `textDocument/signatureHelp` request.
+    pub fn signature_help(
+        &self,
+        file_id: FileId,
+        offset: rowan::TextSize,
+    ) -> Cancellable<Option<signature::SignatureHelp>> {
+        self.with_db(|db| nav::java::signature_help(db, file_id, offset))
     }
 
     /// The rename of the symbol at `offset` — every position the workspace

@@ -272,6 +272,8 @@ impl GlobalState {
             .on_async::<ReferencesRequest>(handlers::on_references)
             .on_async::<HoverRequest>(handlers::on_hover)
             .on_async::<RenameRequest>(handlers::on_rename)
+            .on_async::<DocumentHighlightRequest>(handlers::on_document_highlight)
+            .on_async::<SignatureHelpRequest>(handlers::on_signature_help)
             .on_async::<PrepareRenameRequest>(handlers::on_prepare_rename)
             .on_async::<CompletionRequest>(handlers::on_completion)
             .on_async::<InlayHintRequest>(handlers::on_inlay_hint)

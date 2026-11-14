@@ -369,6 +369,77 @@ pub fn on_rename(
     }))
 }
 
+/// `textDocument/documentHighlight`: every position of the file that names
+/// the symbol at the position.
+pub fn on_document_highlight(
+    state: GlobalStateSnapshot,
+    params: DocumentHighlightParams,
+) -> anyhow::Result<Option<Vec<DocumentHighlight>>> {
+    let pos = params.text_document_position_params;
+    tracing::info!(uri = ?pos.text_document.uri, "request document highlight");
+    let Some(file_id) = state.url_to_file_id(&pos.text_document.uri)? else {
+        return Ok(None);
+    };
+    let line_index = state.file_line_index(file_id)?;
+    let offset = crate::lsp::from_proto::offset(&line_index, pos.position)?;
+    let highlights = state.analysis.document_highlight(file_id, offset)?;
+    Ok(Some(
+        highlights
+            .into_iter()
+            .map(|range| DocumentHighlight {
+                range: to_proto::range(&line_index, range),
+                kind: None,
+            })
+            .collect(),
+    ))
+}
+
+/// `textDocument/signatureHelp`: the candidates of the invocation the
+/// position sits inside, the parameter under the cursor active.
+pub fn on_signature_help(
+    state: GlobalStateSnapshot,
+    params: SignatureHelpParams,
+) -> anyhow::Result<Option<lsp_types::SignatureHelp>> {
+    let pos = params.text_document_position_params;
+    tracing::info!(uri = ?pos.text_document.uri, "request signature help");
+    let Some(file_id) = state.url_to_file_id(&pos.text_document.uri)? else {
+        return Ok(None);
+    };
+    let line_index = state.file_line_index(file_id)?;
+    let offset = crate::lsp::from_proto::offset(&line_index, pos.position)?;
+    let Some(help) = state.analysis.signature_help(file_id, offset)? else {
+        return Ok(None);
+    };
+    Ok(Some(lsp_types::SignatureHelp {
+        signatures: help
+            .signatures
+            .into_iter()
+            .map(|signature| SignatureInformation {
+                label: signature.label,
+                parameters: Some(
+                    signature
+                        .parameters
+                        .into_iter()
+                        .map(|parameter| ParameterInformation {
+                            label: lsp_types::ParameterInformationLabel::String(parameter.label),
+                            documentation: None,
+                        })
+                        .collect(),
+                ),
+                documentation: signature.documentation.map(|value| {
+                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value,
+                    })
+                }),
+                active_parameter: None,
+            })
+            .collect(),
+        active_signature: Some(help.active_signature),
+        active_parameter: help.active_parameter.map(lsp_types::ActiveParameter::Int),
+    }))
+}
+
 /// `textDocument/completion`: the members a `receiver.` position can name —
 /// source members, classpath members and the bytecode mirror's additions,
 /// with the signatures hover shows. An offset that is no dot position answers

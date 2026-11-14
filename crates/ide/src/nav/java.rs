@@ -4490,6 +4490,105 @@ fn validate_identifier(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Highlight and signature help
+//
+
+/// The document highlight of the symbol at `offset`: every position of this
+/// file that writes or reads the same declaration — the declaration's own
+/// token included. The LSP kind is left to the default (text): the sweep
+/// behind [`references`] does not distinguish reads from writes yet.
+pub(crate) fn document_highlight(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+) -> Vec<TextRange> {
+    references(db, file, offset, true)
+        .into_iter()
+        .filter(|hit| hit.file == file)
+        .map(|hit| hit.range)
+        .collect()
+}
+
+/// The signature help at `offset`: when the offset sits inside a method
+/// invocation or an instance creation, the invocation's declared candidates
+/// — the selected overload, or every applicable one of a tie ([JLS
+/// §15.12.2.5]) — with the parameter the offset sits in as the active one.
+pub(crate) fn signature_help(
+    db: &RootDatabase,
+    file: FileId,
+    offset: TextSize,
+) -> Option<crate::signature::SignatureHelp> {
+    let bodies = jvm_index::file_body_tree(db, file);
+    // Innermost call containing the offset: `exprs_at` orders inner-out, and
+    // a nested call's argument wins over the enclosing one.
+    for expr_id in exprs_at(&bodies, offset) {
+        if !matches!(
+            bodies.expr(expr_id),
+            ExprData::MethodCall { .. } | ExprData::New { .. }
+        ) {
+            continue;
+        }
+        // The parameter the offset sits in: the first argument containing it,
+        // zero on the name or between the parentheses.
+        let active = args_containing(&bodies, expr_id, offset)
+            .into_iter()
+            .next()
+            .unwrap_or(0);
+
+        let tree = jvm_index::hir_def::java::plugin::tree(db, file);
+        let candidates: Vec<(hir::MethodData, Option<ItemId>)> =
+            body_items_at(db, file, &tree, offset)
+                .iter()
+                .filter_map(|item| {
+                    let body = hir::body_types(db, file, *item)?;
+                    let resolved = body.resolved.get(&expr_id)?;
+                    match resolved {
+                        hir::ResolvedMember::Method(method) => {
+                            Some(vec![(method.clone(), Some(*item))])
+                        }
+                        hir::ResolvedMember::Unresolved(methods) => {
+                            Some(methods.iter().map(|m| (m.clone(), Some(*item))).collect())
+                        }
+                        _ => None,
+                    }
+                })
+                .next()?;
+
+        let signatures = candidates
+            .into_iter()
+            .map(|(method, decl_item)| {
+                crate::signature::signature_information(db, &method, decl_item)
+            })
+            .collect();
+        return Some(crate::signature::SignatureHelp {
+            signatures,
+            active_signature: 0,
+            active_parameter: Some(active),
+        });
+    }
+    None
+}
+
+/// The indexes of the call's arguments whose range contains `offset`, in
+/// argument order — the active-parameter candidates.
+fn args_containing(bodies: &BodyTree, call: ExprId, offset: TextSize) -> Vec<u32> {
+    match bodies.expr(call) {
+        ExprData::MethodCall { args, .. } | ExprData::New { args, .. } => args
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| {
+                bodies
+                    .expr_ranges
+                    .get(arg.0.0 as usize)
+                    .is_some_and(|range| range.contains(offset))
+            })
+            .map(|(index, _)| index as u32)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod completion_tests {
     use super::descriptor_param_names;
