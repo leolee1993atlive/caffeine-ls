@@ -3413,10 +3413,9 @@ fn scope_completion(
     if word.is_empty() {
         out.items
     } else {
-        let word = word.to_lowercase();
         out.items
             .into_iter()
-            .filter(|item| item.label.to_lowercase().starts_with(&word))
+            .filter(|item| camel_humps_match(word, &item.label))
             .collect()
     }
 }
@@ -3458,7 +3457,7 @@ fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &
     }
     let interner = &db.hir_state().interner;
     let file_package = jvm_index::file_package(db, file);
-    let insert_offset = import_insert_offset(db, file);
+    let import_table = import_insert_table(db, file);
     let word = word.to_owned();
     let mut pushed = 0usize;
     for library in libraries {
@@ -3473,22 +3472,14 @@ fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &
                 continue;
             }
             let label = fqn.rsplit('.').next().unwrap_or(fqn);
-            if !label.starts_with(word.as_str()) {
+            if !camel_humps_match(&word, label) {
                 continue;
             }
             let package = interner.resolve(&entry.package);
             let import_edit = if package == file_package.as_str() || package == "java.lang" {
                 None
             } else {
-                insert_offset.map(|offset| {
-                    (
-                        offset,
-                        format!(
-                            "import {fqn};
-"
-                        ),
-                    )
-                })
+                Some((import_table.offset_for(fqn), format!("import {fqn};\n")))
             };
             out.insert_classpath_type(label, fqn, import_edit);
             pushed += 1;
@@ -3500,20 +3491,102 @@ fn classpath_type_candidates(db: &RootDatabase, file: FileId, word: &str, out: &
 /// import, else after the package declaration, else the file start. The
 /// position is a text scan, so a malformed declaration degrades to the next
 /// anchor rather than failing the completion.
-fn import_insert_offset(db: &RootDatabase, file: FileId) -> Option<usize> {
+/// The file's import layout for alphabetical insertions: every plain
+/// import with its line span, plus the offset after the last import of any
+/// kind (or after the package declaration) as the append position.
+struct ImportInsertTable {
+    plain: Vec<(String, usize, usize)>,
+    after_last: usize,
+}
+
+fn import_insert_table(db: &RootDatabase, file: FileId) -> ImportInsertTable {
     let text: &str = &db.file_text(file).text(db);
-    let mut insert = None;
+    let mut table = ImportInsertTable {
+        plain: Vec::new(),
+        after_last: 0,
+    };
     let mut offset = 0usize;
     for line in text.split_inclusive('\n') {
         let trimmed = line.trim_start();
         if (trimmed.starts_with("package ") || trimmed.starts_with("import "))
             && line.trim_end().ends_with(';')
         {
-            insert = Some(offset + line.len());
+            table.after_last = offset + line.len();
+            if let Some(name) = trimmed
+                .strip_prefix("import ")
+                .and_then(|rest| rest.trim_end().strip_suffix(';'))
+                .filter(|name| !name.starts_with("static "))
+            {
+                table
+                    .plain
+                    .push((name.to_owned(), offset, offset + line.len()));
+            }
         }
         offset += line.len();
     }
-    insert
+    table
+}
+
+impl ImportInsertTable {
+    /// Where the import of `fqn` inserts: before the first plain import
+    /// sorting after it, else after the last import, else at the file start.
+    fn offset_for(&self, fqn: &str) -> usize {
+        for (name, start, _) in &self.plain {
+            if name.as_str() > fqn {
+                return *start;
+            }
+        }
+        self.after_last
+    }
+}
+
+/// Whether the typed `word` denotes `label` under IDE completion semantics:
+/// a plain prefix always matches, and a word carrying capitals (camel humps,
+/// `CoD` for `CollectionUtils`, `ArrLis` for `ArrayList`) matches when its
+/// capital-letter sequence prefixes the label's own, with any lowercase head
+/// of the word prefixing the label's lowercase head. Case-insensitive and
+/// forgiving by design: a false accept costs a row the user skips.
+fn camel_humps_match(word: &str, label: &str) -> bool {
+    if word.is_empty()
+        || label.starts_with(word)
+        || label.to_lowercase().starts_with(&word.to_lowercase())
+    {
+        return true;
+    }
+    let w_humps = humps(word);
+    if w_humps.is_empty() {
+        return false;
+    }
+    if !humps(label).starts_with(&w_humps[..]) {
+        return false;
+    }
+    // A lowercase head of the word must agree with the label's own head.
+    let w_head = word.find(|c: char| c.is_uppercase()).unwrap_or(word.len());
+    if w_head == 0 {
+        return true;
+    }
+    let l_head = label
+        .find(|c: char| c.is_uppercase())
+        .unwrap_or(label.len());
+    w_head <= l_head && label[..l_head].starts_with(&word[..w_head])
+}
+
+/// The hump characters of an identifier: its first alphanumeric and every
+/// alphanumeric after a non-alphanumeric (`CASE_INSENSITIVE` → C, I) or after
+/// a lowercase→uppercase boundary (`ArrayList` → A, L). The camel-humps
+/// search matches against this sequence.
+fn humps(name: &str) -> Vec<char> {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = Vec::new();
+    for (i, c) in chars.iter().enumerate() {
+        let boundary = i == 0
+            || !chars[i - 1].is_alphanumeric()
+            || (chars[i - 1].is_lowercase() && c.is_uppercase());
+        if boundary && c.is_alphanumeric() {
+            out.push(*c);
+        }
+    }
+    out
 }
 
 /// The keywords and literals of Java ([JLS §3.9], [§3.10.3]–[§3.10.7],
@@ -4311,6 +4384,24 @@ fn visible_from(
 #[cfg(test)]
 mod completion_tests {
     use super::descriptor_param_names;
+
+    #[test]
+    fn camel_humps_match_follows_ide_semantics() {
+        use super::camel_humps_match;
+        // Plain prefixes, any case.
+        assert!(camel_humps_match("", "Anything"));
+        assert!(camel_humps_match("Arr", "ArrayList"));
+        assert!(camel_humps_match("arr", "ArrayList"));
+        // Camel humps: the capitals prefix the label's capitals.
+        assert!(camel_humps_match("AL", "ArrayList"));
+        assert!(camel_humps_match("ArrLis", "ArrayList"));
+        assert!(camel_humps_match("CoU", "CollectionUtils"));
+        // A lowercase head must agree with the label's head.
+        assert!(!camel_humps_match("disLis", "ArrayList"));
+        // A hump that skips ahead does not match.
+        assert!(!camel_humps_match("CoD", "CollectionUtils"));
+        assert!(camel_humps_match("CaInO", "CASE_INSENSITIVE_ORDER"));
+    }
 
     #[test]
     fn descriptor_params_parse_primitives_references_and_arrays() {
