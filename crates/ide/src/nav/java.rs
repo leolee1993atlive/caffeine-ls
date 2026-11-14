@@ -3189,7 +3189,8 @@ fn rank(items: Vec<crate::completion::CompletionItem>) -> Vec<crate::completion:
         crate::completion::CompletionItemKind::Method
         | crate::completion::CompletionItemKind::Field => 1,
         crate::completion::CompletionItemKind::Class => 2,
-        crate::completion::CompletionItemKind::Keyword => 3,
+        crate::completion::CompletionItemKind::Snippet => 3,
+        crate::completion::CompletionItemKind::Keyword => 4,
     };
     let mut sorted = items;
     sorted.sort_by(|a, b| {
@@ -3330,6 +3331,8 @@ fn scope_completion(
                         kind: crate::completion::CompletionItemKind::Variable,
                         detail: format!("{}: {}", local.name.as_str(), ty.display_simple(db)),
                         import_edit: None,
+                    insert_text: None,
+                    docs: None,
                     },
                     local.name.as_str(),
                 );
@@ -3404,6 +3407,15 @@ fn scope_completion(
     // so a one-letter prefix does not flood the popup.
     if !word.is_empty() {
         classpath_type_candidates(db, file, word, &mut out);
+    }
+
+    // Statement templates: plain-text bodies (the editor build does not
+    // expand LSP snippet placeholders, so `$0` would insert verbatim),
+    // one keystroke saving the whole statement.
+    for (name, body, detail) in SNIPPETS {
+        if word.is_empty() || camel_humps_match(word, name) {
+            out.insert_snippet(name, body, detail);
+        }
     }
 
     for keyword in KEYWORDS {
@@ -3589,6 +3601,15 @@ fn humps(name: &str) -> Vec<char> {
     out
 }
 
+/// The statement templates of the scope completion: name, the plain-text
+/// body inserted as-is, and the popup detail. Kept context-free on
+/// purpose — context-aware templates need the enclosing scope model.
+const SNIPPETS: &[(&str, &str, &str)] = &[
+    ("sout", "System.out.println();", "print to stdout"),
+    ("fori", "for (int i = 0; i < ; i++) {\n    \n}", "counted for loop"),
+    ("psvm", "public static void main(String[] args) {\n    \n}", "main method"),
+];
+
 /// The keywords and literals of Java ([JLS §3.9], [§3.10.3]–[§3.10.7],
 /// [§3.10.8]); `const` and `goto` are reserved but unusable, and stay.
 const KEYWORDS: &[&str] = &[
@@ -3714,6 +3735,8 @@ impl Members {
                 kind,
                 detail,
                 import_edit: None,
+            insert_text: None,
+            docs: None,
             });
         }
     }
@@ -3754,6 +3777,8 @@ impl Members {
                 kind: crate::completion::CompletionItemKind::Class,
                 detail: fqn.to_owned(),
                 import_edit,
+                insert_text: None,
+            docs: None,
             });
         }
     }
@@ -3766,6 +3791,20 @@ impl Members {
             crate::completion::CompletionItemKind::Keyword,
             String::new(),
         );
+    }
+
+    /// A statement template: the label matches, the body inserts.
+    fn insert_snippet(&mut self, name: &str, body: &str, detail: &str) {
+        if self.seen.insert((format!("snip/l/{name}"), String::new())) {
+            self.items.push(crate::completion::CompletionItem {
+                label: name.to_owned(),
+                kind: crate::completion::CompletionItemKind::Snippet,
+                detail: detail.to_owned(),
+                import_edit: None,
+                insert_text: Some(body.to_owned()),
+                docs: None,
+            });
+        }
     }
 }
 
@@ -3935,15 +3974,16 @@ fn source_members(
             // A field has no parameters.
             _ => 0,
         };
-        let detail = declaration_hover(db, class.file, member)
-            .map(|hover| hover.value)
-            .unwrap_or_default();
+        let hover = declaration_hover(db, class.file, member);
+        let detail = hover.as_ref().map(|hover| hover.value.clone()).unwrap_or_default();
         out.insert_source(
             crate::completion::CompletionItem {
                 label: name.as_str().to_owned(),
                 kind,
                 detail,
                 import_edit: None,
+                insert_text: None,
+                docs: hover.and_then(|hover| hover.docs),
             },
             name.as_str(),
             arity,
@@ -4195,6 +4235,8 @@ fn library_members(
                 kind: crate::completion::CompletionItemKind::Method,
                 detail,
                 import_edit: None,
+                insert_text: None,
+                docs: None,
             },
             name,
             descriptor,
@@ -4217,6 +4259,8 @@ fn library_members(
                 kind: crate::completion::CompletionItemKind::Field,
                 detail,
                 import_edit: None,
+                insert_text: None,
+                docs: None,
             },
             name,
             descriptor,
@@ -4331,6 +4375,8 @@ fn mirror_members(
                 kind: crate::completion::CompletionItemKind::Method,
                 detail,
                 import_edit: None,
+                insert_text: None,
+                docs: None,
             },
             name,
             descriptor,
@@ -4351,6 +4397,8 @@ fn mirror_members(
                 kind: crate::completion::CompletionItemKind::Field,
                 detail,
                 import_edit: None,
+                insert_text: None,
+                docs: None,
             },
             name,
             "",

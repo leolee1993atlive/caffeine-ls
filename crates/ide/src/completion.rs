@@ -23,6 +23,12 @@ pub struct CompletionItem {
     /// offset the `import` line inserts at, and the line's text. `None` for
     /// every candidate that needs no import.
     pub import_edit: Option<(usize, String)>,
+    /// The text inserting writes when it differs from the label — a
+    /// template's body. `None` means the label itself.
+    pub insert_text: Option<String>,
+    /// The declaration's documentation, rendered — shown on the popup row.
+    /// `None` for candidates with nothing to show (classpath members, keywords).
+    pub docs: Option<String>,
 }
 
 /// The kind of a [`CompletionItem`].
@@ -33,6 +39,7 @@ pub enum CompletionItemKind {
     Variable,
     Class,
     Keyword,
+    Snippet,
 }
 
 /// The completion at `offset`: the members the dot before it can name, or —

@@ -343,8 +343,18 @@ pub fn on_completion(
                     ide::CompletionItemKind::Variable => CompletionItemKind::Variable,
                     ide::CompletionItemKind::Class => CompletionItemKind::Class,
                     ide::CompletionItemKind::Keyword => CompletionItemKind::Keyword,
+                    ide::CompletionItemKind::Snippet => CompletionItemKind::Snippet,
                 }),
                 detail: Some(item.detail),
+                // The popup row shows the declaration's documentation right
+                // on the candidate; it was computed alongside the signature.
+                documentation: item.docs.map(|value| {
+                    lsp_types::Documentation::MarkupContent(lsp_types::MarkupContent {
+                        kind: lsp_types::MarkupKind::Markdown,
+                        value,
+                    })
+                }),
+                insert_text: item.insert_text,
                 additional_text_edits,
                 ..Default::default()
             }
