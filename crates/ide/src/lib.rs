@@ -410,7 +410,7 @@ impl Analysis {
         &self,
         file_id: FileId,
         offset: rowan::TextSize,
-    ) -> Cancellable<Vec<rowan::TextRange>> {
+    ) -> Cancellable<Vec<(rowan::TextRange, bool)>> {
         self.with_db(|db| nav::java::document_highlight(db, file_id, offset))
     }
 

@@ -386,9 +386,13 @@ pub fn on_document_highlight(
     Ok(Some(
         highlights
             .into_iter()
-            .map(|range| DocumentHighlight {
+            .map(|(range, is_write)| DocumentHighlight {
                 range: to_proto::range(&line_index, range),
-                kind: None,
+                kind: Some(if is_write {
+                    DocumentHighlightKind::Write
+                } else {
+                    DocumentHighlightKind::Read
+                }),
             })
             .collect(),
     ))

@@ -923,11 +923,7 @@ fn request_until(
 /// `normalize_uris` can find and replace it in server responses.
 fn uri_root_form(path: &std::path::Path) -> String {
     let p = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        format!("/{p}")
-    } else {
-        p
-    }
+    if cfg!(windows) { format!("/{p}") } else { p }
 }
 
 /// Rewrites every `file://` URI containing `workspace_root` to a stable

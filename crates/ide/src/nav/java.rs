@@ -4496,18 +4496,65 @@ fn validate_identifier(name: &str) -> Result<(), String> {
 
 /// The document highlight of the symbol at `offset`: every position of this
 /// file that writes or reads the same declaration — the declaration's own
-/// token included. The LSP kind is left to the default (text): the sweep
-/// behind [`references`] does not distinguish reads from writes yet.
+/// token included — each tagged with its kind. A position is a *write* when
+/// it is the declaration itself or the left-hand side of an assignment
+/// ([JLS §15.26]), else a *read*.
 pub(crate) fn document_highlight(
     db: &RootDatabase,
     file: FileId,
     offset: TextSize,
-) -> Vec<TextRange> {
-    references(db, file, offset, true)
+) -> Vec<(TextRange, bool)> {
+    let hits: Vec<TextRange> = references(db, file, offset, true)
         .into_iter()
         .filter(|hit| hit.file == file)
         .map(|hit| hit.range)
+        .collect();
+    let writes = write_positions(db, file);
+    let declarations: FxHashSet<TextRange> = definition(db, file, offset)
+        .into_iter()
+        .map(|target| target.range)
+        .collect();
+    hits.into_iter()
+        .map(|range| {
+            let is_write = writes.contains(&range) || declarations.contains(&range);
+            (range, is_write)
+        })
         .collect()
+}
+
+/// The ranges of this file's positions that *write*: every assignment's
+/// left-hand side, across every body of the file (methods, initializers,
+/// nested classes — [`all_items`] reaches them all).
+fn write_positions(db: &RootDatabase, file: FileId) -> FxHashSet<TextRange> {
+    // One file-wide arena: every body's expressions lower into the same
+    // tables ([`jvm_index::file_body_tree`]), so a single pass sees the
+    // assignments of all methods, initializers and nested classes.
+    let bodies = jvm_index::file_body_tree(db, file);
+    let mut out = FxHashSet::default();
+    for (_, data) in bodies.exprs.iter() {
+        if let ExprData::Assign { lhs, .. } = data
+            && let Some(lhs_range) = bodies.expr_range(*lhs)
+        {
+            // A qualified left side (`this.age`, `cell.age`) writes its *name*
+            // token, which is where the reference's own range points.
+            let field_name = match bodies.expr(*lhs) {
+                ExprData::FieldAccess { name, .. } => Some(name.as_str().len()),
+                _ => None,
+            };
+            match field_name {
+                Some(len) => {
+                    out.insert(TextRange::new(
+                        lhs_range.end() - TextSize::new(len as u32),
+                        lhs_range.end(),
+                    ));
+                }
+                None => {
+                    out.insert(lhs_range);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The signature help at `offset`: when the offset sits inside a method
